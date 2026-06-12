@@ -152,7 +152,7 @@ const getArtistName = (song: Song) => {
 
           <!-- Duration -->
           <div class="text-xs md:text-sm text-text-secondary font-mono text-right tabular-nums">
-            {{ formatDuration(song.duration_secs) }}
+            {{ formatDuration(song.duration_secs || 0) }}
           </div>
         </div>
       </div>
