@@ -81,13 +81,15 @@ const { list, containerProps, wrapperProps } = useVirtualList(queue, {
             @click="clearQueue" 
             class="text-xs text-text-secondary hover:text-red-500 transition-colors flex items-center gap-1 px-2 py-1 rounded hover:bg-bg-elevate"
             v-if="playerStore.queue.length > 0"
+            :title="t('common.clear')"
           >
             <Trash2 class="w-3.5 h-3.5" />
-            Clear
+            {{ t('common.clear') }}
           </button>
           <button 
             @click="close"
             class="p-2 -mr-2 text-text-secondary hover:text-text-primary transition-colors rounded-full hover:bg-bg-elevate"
+            :title="t('common.close')"
           >
             <X class="w-5 h-5" />
           </button>
@@ -139,6 +141,7 @@ const { list, containerProps, wrapperProps } = useVirtualList(queue, {
             <button 
               @click="(e) => removeSong(e, index)"
               class="p-1.5 text-text-tertiary hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+              :title="t('common.remove')"
             >
               <X class="w-3.5 h-3.5" />
             </button>

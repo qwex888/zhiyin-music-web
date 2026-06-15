@@ -49,6 +49,7 @@ const menuItems = computed(() => [
       @click="toggleSidebar"
       class="absolute -right-3 top-9 w-6 h-6 bg-bg-elevate border border-border rounded-full hidden md:flex items-center justify-center text-text-secondary hover:text-primary hover:border-primary/30 shadow-lg transition-all duration-300 z-50 opacity-0 group-hover/sidebar:opacity-100 focus:opacity-100"
       :class="{ 'opacity-100': isCollapsed }"
+      :title="t('common.toggle_sidebar')"
     >
       <ChevronLeft 
         class="w-3.5 h-3.5 transition-transform duration-300" 
@@ -137,7 +138,7 @@ const menuItems = computed(() => [
         @click="handleLogout"
         class="flex items-center gap-3 py-3 w-full rounded-md text-sm font-medium transition-colors overflow-hidden whitespace-nowrap text-text-secondary hover:bg-red-500/10 hover:text-red-400"
         :class="isCollapsed ? 'justify-center px-2' : 'px-4'"
-        :title="isCollapsed ? t('auth.logout') : ''"
+        :title="t('auth.logout')"
       >
         <LogOut class="w-5 h-5 flex-shrink-0" />
         <span :class="isCollapsed ? 'opacity-0 w-0' : 'opacity-100 transition-opacity duration-300'">

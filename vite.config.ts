@@ -53,8 +53,8 @@ export default defineConfig({
     port: 7321,
     proxy: {
       '/api': {
-        // target: 'http://127.0.0.1:8080',
-        target: 'http://192.168.31.228:18085',
+        target: 'http://127.0.0.1:8080',
+        // target: 'http://192.168.31.228:18085',
         changeOrigin: true,
       }
     }

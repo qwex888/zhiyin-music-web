@@ -374,6 +374,7 @@ const seekToLyric = (time: number) => {
         <button 
           @click="close"
           class="absolute left-4 p-2 text-text-secondary hover:text-text-primary transition-colors rounded-full hover:bg-bg-elevate"
+          :title="t('player.close_player')"
         >
           <ChevronDown class="w-6 h-6" />
         </button>
@@ -463,7 +464,7 @@ const seekToLyric = (time: number) => {
               <!-- STRM Badge -->
               <Cloud
                 v-if="isStrmSong(playerStore.currentSong)"
-                class="w-5 h-5 flex-shrink-0 text-sky-400"
+                class="w-6 h-6 flex-shrink-0 text-sky-400"
                 :title="t('player.strm_badge')"
               />
               <!-- Quality Badge -->
@@ -541,6 +542,7 @@ const seekToLyric = (time: number) => {
             <button 
               @click="playerStore.prev" 
               class="p-2 text-text-primary hover:text-primary transition-colors"
+              :title="t('player.prev')"
             >
               <SkipBack class="w-8 h-8 md:w-10 md:h-10 fill-current" />
             </button>
@@ -548,6 +550,7 @@ const seekToLyric = (time: number) => {
             <button 
               @click="playerStore.togglePlay" 
               class="w-16 h-16 md:w-20 md:h-20 rounded-full bg-primary-gradient hover:scale-105 text-white flex items-center justify-center transition-all shadow-xl shadow-primary/20"
+              :title="playerStore.isPlaying ? t('player.paused') : t('player.playing')"
             >
               <Pause v-if="playerStore.isPlaying" class="w-8 h-8 md:w-10 md:h-10 fill-current" />
               <Play v-else class="w-8 h-8 md:w-10 md:h-10 fill-current ml-1" />
@@ -556,6 +559,7 @@ const seekToLyric = (time: number) => {
             <button 
               @click="playerStore.next" 
               class="p-2 text-text-primary hover:text-primary transition-colors"
+              :title="t('player.next')"
             >
               <SkipForward class="w-8 h-8 md:w-10 md:h-10 fill-current" />
             </button>

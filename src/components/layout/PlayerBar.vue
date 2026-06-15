@@ -129,13 +129,7 @@ const toggleQuality = () => {
           :cover-id="playerStore.currentSong.cover_id"
           size="small"
           :alt="t('player.playing')"
-        >
-          <template #fallback>
-            <div class="w-full h-full flex items-center justify-center text-text-tertiary bg-bg-surface">
-              <Music2 class="w-5 h-5 md:w-8 md:h-8" />
-            </div>
-          </template>
-        </CoverImage>
+        />
         <div v-else class="w-full h-full flex items-center justify-center text-text-tertiary bg-bg-surface">
           <Music2 class="w-5 h-5 md:w-8 md:h-8" />
         </div>
@@ -144,11 +138,11 @@ const toggleQuality = () => {
          </div>
        </div>
        <div v-if="playerStore.currentSong" class="overflow-hidden flex-1">
-         <div class="flex items-center gap-1 min-w-0">
+         <div class="flex items-center gap-2 min-w-0">
            <span class="text-sm font-medium text-text-primary truncate">{{ playerStore.currentSong.title }}</span>
            <Cloud
              v-if="isStrmSong(playerStore.currentSong)"
-             class="w-3 h-3 flex-shrink-0 text-sky-400"
+             class="w-6 h-6 flex-shrink-0 text-sky-400"
              :title="t('player.strm_badge')"
            />
          </div>
@@ -183,6 +177,7 @@ const toggleQuality = () => {
         @click.stop="showPlaylist = !showPlaylist" 
         class="md:hidden text-text-secondary hover:text-text-primary transition-colors p-1"
         :class="{ 'text-primary': showPlaylist }"
+        :title="t('player.queue')"
       >
         <ListMusic class="w-5 h-5" />
       </button>
@@ -245,7 +240,7 @@ const toggleQuality = () => {
         </button>
         
         <!-- 音量 -->
-        <div class="flex items-center gap-2 group">
+        <div class="flex items-center gap-2 group" :title="t('player.volume')">
            <Volume2 class="w-5 h-5 text-text-secondary" />
            <input 
              type="range" 

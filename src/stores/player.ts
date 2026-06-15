@@ -44,6 +44,9 @@ export const usePlayerStore = defineStore('player', () => {
   const shuffleRemaining = ref<number[]>([]); // 剩余未播放的歌曲索引
   
   let sound: Howl | null = null;
+  let soundGeneration = 0;
+  let skipThrottleUntil = 0;
+  const SKIP_THROTTLE_MS = 300;
   let progressInterval: ReturnType<typeof setInterval> | null = null;
   let activeObjectUrl: string | null = null;
   const toast = useToast();
@@ -98,10 +101,18 @@ export const usePlayerStore = defineStore('player', () => {
     finally { cachingInProgress.delete(key); }
   }
 
-  const initSound = async (song: Song, resetProgress = true) => {
+  const destroySound = () => {
     if (sound) {
       sound.unload();
+      sound = null;
     }
+    stopProgressTimer();
+  };
+
+  const initSound = async (song: Song, resetProgress = true): Promise<number> => {
+    const gen = ++soundGeneration;
+
+    destroySound();
     revokeObjectUrl();
 
     if (resetProgress) {
@@ -113,24 +124,32 @@ export const usePlayerStore = defineStore('player', () => {
     const q = (isStrmSong(song) ? 'original' : quality.value) as StreamQuality;
     const cachedUrl = await getCachedAudioObjectUrl(song.id, q);
 
+    if (gen !== soundGeneration) return gen;
+
     if (cachedUrl) {
       src = cachedUrl;
       activeObjectUrl = cachedUrl;
     } else if (isAppOnline()) {
       try {
         const { data } = await musicApi.getStreamToken(song.id, q);
+        if (gen !== soundGeneration) return gen;
         src = musicApi.buildStreamUrl(song.id, q, data.stream_token);
         if (song.cover_id) cacheCoverInBackground(song.cover_id);
-      } catch {
-        toast.error(i18n.global.t('offline.play_token_failed'));
+      } catch (err: any) {
+        if (gen !== soundGeneration) return gen;
         isPlaying.value = false;
-        return;
+        if (err?.response?.status !== 401) {
+          toast.error(i18n.global.t('offline.play_token_failed'));
+        }
+        return gen;
       }
     } else {
       toast.error(i18n.global.t('offline.play_not_cached'));
       isPlaying.value = false;
-      return;
+      return gen;
     }
+
+    if (gen !== soundGeneration) return gen;
 
     const needsCache = !activeObjectUrl;
     const cacheTargetId = song.id;
@@ -142,9 +161,11 @@ export const usePlayerStore = defineStore('player', () => {
       format: ['mp3', 'flac', 'wav', 'ogg', 'aac', 'm4a', 'opus', 'webm', 'weba', 'mp4'],
       volume: volume.value,
       onload: () => {
+        if (gen !== soundGeneration) return;
         duration.value = sound?.duration() || 0;
       },
       onplay: () => {
+        if (gen !== soundGeneration) return;
         isPlaying.value = true;
         startProgressTimer();
         if (needsCache) {
@@ -152,15 +173,19 @@ export const usePlayerStore = defineStore('player', () => {
         }
       },
       onpause: () => {
+        if (gen !== soundGeneration) return;
         isPlaying.value = false;
         stopProgressTimer();
       },
       onend: () => {
+        if (gen !== soundGeneration) return;
         isPlaying.value = false;
         stopProgressTimer();
         next();
       },
       onloaderror: () => {
+        if (gen !== soundGeneration) return;
+        destroySound();
         isPlaying.value = false;
         const msg = isStrmSong(song)
           ? i18n.global.t('player.error_strm_unavailable')
@@ -168,23 +193,22 @@ export const usePlayerStore = defineStore('player', () => {
         toast.error(msg);
       },
       onplayerror: () => {
+        if (gen !== soundGeneration) return;
+        destroySound();
         isPlaying.value = false;
         const msg = isStrmSong(song)
           ? i18n.global.t('player.error_strm_unavailable')
           : i18n.global.t('player.error_local_not_found');
         toast.error(msg);
       },
-      onseek: () => {
-      }
+      onseek: () => {}
     });
-  };
 
-  let initInFlight: number | null = null;
+    return gen;
+  };
 
   const play = async (song?: Song) => {
     if (song) {
-      if (initInFlight === song.id) return;
-
       const needsInit = currentSong.value?.id !== song.id || !sound;
       if (needsInit) {
         const enrichedSong = { ...song };
@@ -201,20 +225,17 @@ export const usePlayerStore = defineStore('player', () => {
         if (!queue.value.find(s => s.id === song.id)) addToQueue(song);
         currentIndex.value = queue.value.findIndex(s => s.id === song.id);
 
-        initInFlight = song.id;
-        try {
-          await initSound(song);
-        } finally { initInFlight = null; }
+        const genBefore = soundGeneration;
+        await initSound(song);
+        if (soundGeneration !== genBefore + 1) return;
       }
     } else if (currentSong.value && !sound) {
-      if (initInFlight === currentSong.value.id) return;
-      initInFlight = currentSong.value.id;
-      try {
-        await initSound(currentSong.value, false);
-        if (sound && progress.value > 0) {
-          (sound as Howl).seek(progress.value);
-        }
-      } finally { initInFlight = null; }
+      const genBefore = soundGeneration;
+      await initSound(currentSong.value, false);
+      if (soundGeneration !== genBefore + 1) return;
+      if (sound && progress.value > 0) {
+        (sound as Howl).seek(progress.value);
+      }
     }
 
     if (sound) sound.play();
@@ -279,16 +300,17 @@ export const usePlayerStore = defineStore('player', () => {
   };
 
   const stopPlayback = () => {
-    if (sound) {
-      sound.stop();
-    }
+    ++soundGeneration;
+    destroySound();
     progress.value = 0;
     isPlaying.value = false;
-    stopProgressTimer();
   };
 
   const next = () => {
     if (queue.value.length === 0) return;
+    const now = Date.now();
+    if (now < skipThrottleUntil) return;
+    skipThrottleUntil = now + SKIP_THROTTLE_MS;
     
     let nextIndex = currentIndex.value + 1;
     
@@ -325,6 +347,9 @@ export const usePlayerStore = defineStore('player', () => {
 
   const prev = () => {
     if (queue.value.length === 0) return;
+    const now = Date.now();
+    if (now < skipThrottleUntil) return;
+    skipThrottleUntil = now + SKIP_THROTTLE_MS;
     
     let prevIndex = currentIndex.value - 1;
     
@@ -411,11 +436,8 @@ export const usePlayerStore = defineStore('player', () => {
   };
 
   const clearQueue = () => {
-    if (sound) {
-      sound.stop();
-      sound.unload();
-      sound = null;
-    }
+    ++soundGeneration;
+    destroySound();
     revokeObjectUrl();
     currentSong.value = null;
     queue.value = [];
@@ -423,7 +445,6 @@ export const usePlayerStore = defineStore('player', () => {
     isPlaying.value = false;
     progress.value = 0;
     duration.value = 0;
-    stopProgressTimer();
   };
 
   return {

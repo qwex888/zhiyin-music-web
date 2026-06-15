@@ -129,15 +129,7 @@ const getArtistName = (song: Song) => {
           <!-- Title + Cover -->
           <div class="flex items-center gap-2 md:gap-3 min-w-0 overflow-hidden">
             <div class="w-8 h-8 md:w-9 md:h-9 bg-gradient-to-br from-zinc-800/50 to-zinc-900/50 rounded overflow-hidden flex-shrink-0 shadow-sm">
-              <CoverImage :cover-id="song.cover_id" size="thumb" lazy>
-                <template #fallback>
-                  <div class="w-full h-full flex items-center justify-center text-text-tertiary text-xs">
-                    <svg class="w-4 h-4 opacity-30" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
-                    </svg>
-                  </div>
-                </template>
-              </CoverImage>
+              <CoverImage :cover-id="song.cover_id" size="thumb" lazy />
             </div>
             <div class="min-w-0 flex-1">
               <div class="text-sm font-medium text-text-primary truncate">{{ song.title }}</div>

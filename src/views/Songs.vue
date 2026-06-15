@@ -173,14 +173,15 @@ onMounted(() => {
              v-if="searchQuery"
              class="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors"
              @click="clearSearch"
+             :title="t('common.clear_search')"
            >
              <X class="w-4 h-4" />
            </button>
          </div>
-         <button class="p-2 bg-bg-surface border border-border rounded-full hover:bg-bg-elevate transition-colors text-text-secondary hover:text-text-primary flex-shrink-0">
+         <button class="p-2 bg-bg-surface border border-border rounded-full hover:bg-bg-elevate transition-colors text-text-secondary hover:text-text-primary flex-shrink-0" :title="t('common.filter')">
            <Filter class="w-4 h-4" />
          </button>
-         <button class="p-2 bg-bg-surface border border-border rounded-full hover:bg-bg-elevate transition-colors text-text-secondary hover:text-text-primary flex-shrink-0">
+         <button class="p-2 bg-bg-surface border border-border rounded-full hover:bg-bg-elevate transition-colors text-text-secondary hover:text-text-primary flex-shrink-0" :title="t('common.sort')">
            <ArrowUpDown class="w-4 h-4" />
          </button>
       </div>

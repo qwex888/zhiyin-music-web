@@ -71,6 +71,8 @@
     "has_lyrics": "显示歌词",
     "lyrics_available": "有歌词",
     "show_cover": "显示封面",
+    "volume": "音量",
+    "close_player": "关闭播放器",
     "strm_quality_locked": "远程歌曲仅支持原始音质",
     "strm_badge": "远程音频（网盘直链）",
     "error_strm_unavailable": "远程音频源不可用，可能链接已过期或网络异常",
@@ -93,7 +95,16 @@
     "unknown_artist": "未知艺术家",
     "unknown_played_at": "未知时间",
     "source_local": "本地文件",
-    "source_strm": "远程直链"
+    "source_strm": "远程直链",
+    "close": "关闭",
+    "clear": "清空",
+    "remove": "移除",
+    "more_actions": "更多操作",
+    "filter": "筛选",
+    "sort": "排序",
+    "clear_search": "清除搜索",
+    "menu": "菜单",
+    "toggle_sidebar": "收起/展开侧边栏"
   },
   "home": {
     "stats": {

@@ -86,50 +86,72 @@ export function useLazyImage(options: {
   };
 }
 
+const PLACEHOLDER_SRC = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"%3E%3C/svg%3E';
+
+function loadImage(img: HTMLImageElement) {
+  const src = img.dataset.src;
+  if (!src) return;
+
+  img.classList.remove('loaded', 'load-error');
+  img.src = src;
+
+  img.onload = () => {
+    img.classList.add('loaded');
+    img.onload = null;
+    img.onerror = null;
+  };
+  img.onerror = () => {
+    img.classList.add('load-error');
+    img.onload = null;
+    img.onerror = null;
+  };
+}
+
+function setupObserver(el: HTMLImageElement) {
+  const prev = (el as any)._lazyObserver as IntersectionObserver | undefined;
+  if (prev) prev.disconnect();
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          loadImage(entry.target as HTMLImageElement);
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    { rootMargin: '150px', threshold: 0.01 },
+  );
+
+  observer.observe(el);
+  (el as any)._lazyObserver = observer;
+}
+
 /**
  * 简化版：用于 Vue 指令
  */
 export const lazyImageDirective = {
   mounted(el: HTMLImageElement, binding: { value: string }) {
-    // 设置占位符
-    el.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"%3E%3C/svg%3E';
+    el.src = PLACEHOLDER_SRC;
     el.dataset.src = binding.value;
-    
-    // 创建观察器
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const img = entry.target as HTMLImageElement;
-            const src = img.dataset.src;
-            
-            if (src) {
-              img.src = src;
-              img.onload = () => {
-                img.classList.add('loaded');
-              };
-              observer.unobserve(img);
-            }
-          }
-        });
-      },
-      {
-        rootMargin: '150px', // 提前 150px 开始加载
-        threshold: 0.01,
-      }
-    );
-    
-    observer.observe(el);
-    
-    // 保存 observer 引用以便清理
-    (el as any)._lazyObserver = observer;
+    setupObserver(el);
   },
-  
+
+  updated(el: HTMLImageElement, binding: { value: string; oldValue?: string | null }) {
+    if (binding.value === binding.oldValue) return;
+    el.dataset.src = binding.value;
+    el.src = PLACEHOLDER_SRC;
+    el.classList.remove('loaded', 'load-error');
+    setupObserver(el);
+  },
+
   unmounted(el: HTMLImageElement) {
-    const observer = (el as any)._lazyObserver;
+    const observer = (el as any)._lazyObserver as IntersectionObserver | undefined;
     if (observer) {
       observer.disconnect();
       delete (el as any)._lazyObserver;
     }
+    el.onload = null;
+    el.onerror = null;
   },
 };

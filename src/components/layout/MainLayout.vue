@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-// import { useI18n } from 'vue-i18n';
+import { useI18n } from 'vue-i18n';
 import Sidebar from './Sidebar.vue';
 import PlayerBar from './PlayerBar.vue';
 import OfflineBanner from '@/components/common/OfflineBanner.vue';
 import { Menu } from 'lucide-vue-next';
 
 const route = useRoute();
-// const { t } = useI18n();
+const { t } = useI18n();
 const showMobileMenu = ref(false);
 
 // 路由变化时关闭移动端菜单
@@ -25,7 +25,7 @@ watch(() => route.path, () => {
     <header class="md:hidden h-14 bg-bg-surface/80 backdrop-blur-md border-b border-border flex items-center justify-between px-4 z-40 fixed top-0 w-full">
       <div class="font-bold text-lg text-transparent bg-clip-text bg-primary-gradient">ZHIYIN</div>
       <div class="flex items-center gap-3">
-        <button class="p-2 text-text-secondary hover:text-text-primary transition-colors" @click="showMobileMenu = !showMobileMenu">
+        <button class="p-2 text-text-secondary hover:text-text-primary transition-colors" @click="showMobileMenu = !showMobileMenu" :title="t('common.menu')">
           <Menu class="w-5 h-5" />
         </button>
       </div>

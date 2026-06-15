@@ -71,6 +71,8 @@
     "has_lyrics": "Lyrics",
     "lyrics_available": "Lyrics Available",
     "show_cover": "Show Cover",
+    "volume": "Volume",
+    "close_player": "Close player",
     "strm_quality_locked": "Remote tracks only support original quality",
     "strm_badge": "Remote audio (cloud link)",
     "error_strm_unavailable": "Remote audio source unavailable — link may have expired or network error",
@@ -93,7 +95,16 @@
     "unknown_artist": "Unknown Artist",
     "unknown_played_at": "Unknown Time",
     "source_local": "Local file",
-    "source_strm": "Remote link"
+    "source_strm": "Remote link",
+    "close": "Close",
+    "clear": "Clear",
+    "remove": "Remove",
+    "more_actions": "More actions",
+    "filter": "Filter",
+    "sort": "Sort",
+    "clear_search": "Clear search",
+    "menu": "Menu",
+    "toggle_sidebar": "Toggle sidebar"
   },
   "home": {
     "stats": {

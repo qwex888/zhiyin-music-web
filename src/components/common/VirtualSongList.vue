@@ -208,6 +208,7 @@ const handlePlay = (song: Song | RecentSong) => {
               v-if="isCurrentSong(song) && playerStore.isPlaying"
               @click.stop="playerStore.pause()"
               class="text-primary"
+              :title="t('player.paused')"
             >
                <Pause class="w-4 h-4 fill-current" />
             </button>
@@ -215,6 +216,7 @@ const handlePlay = (song: Song | RecentSong) => {
               v-else
               class="hidden group-hover:block text-text-primary"
               @click.stop="handlePlay(song)"
+              :title="t('player.playing')"
             >
               <Play class="w-4 h-4 fill-current" />
             </button>
@@ -233,15 +235,7 @@ const handlePlay = (song: Song | RecentSong) => {
                  :cover-id="song.cover_id"
                  size="thumb"
                  lazy
-               >
-                 <template #fallback>
-                   <div class="w-full h-full flex items-center justify-center text-text-tertiary text-xs">
-                     <svg class="w-5 h-5 opacity-30" fill="currentColor" viewBox="0 0 24 24">
-                       <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
-                     </svg>
-                   </div>
-                 </template>
-               </CoverImage>
+               />
             </div>
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1.5 min-w-0">
@@ -290,6 +284,7 @@ const handlePlay = (song: Song | RecentSong) => {
              <button 
                class="p-1 text-text-secondary hover:text-text-primary active:text-text-primary rounded-full hover:bg-bg-surface active:bg-bg-surface transition-colors"
                @click.stop="toggleMenu(song.id, $event)"
+               :title="t('common.more_actions')"
              >
                <MoreHorizontal class="w-4 h-4" />
              </button>
@@ -328,16 +323,6 @@ const handlePlay = (song: Song | RecentSong) => {
 </template>
 
 <style scoped>
-/* 懒加载图片渐入效果 */
-img:not(.loaded) {
-  opacity: 0;
-}
-
-img.loaded {
-  opacity: 1;
-  transition: opacity 0.3s ease-in;
-}
-
 /* 封面加载动画 */
 @keyframes shimmer {
   0% {
