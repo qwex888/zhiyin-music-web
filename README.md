@@ -52,12 +52,12 @@
 
 > **This repository contains frontend code only.** To fully experience ZHIYIN, you need to deploy the backend service first.
 
-Backend GitHub repository (includes Docker examples and config samples): [**github/zhiyin**](https://github.com/qwex888/zhiyin)
+Backend GitHub repository (includes Docker examples and config samples): [**github/zhiyin-music**](https://github.com/qwex888/zhiyin-music)
 
-Backend Docker image: [**qwex333/zhiyin**](https://hub.docker.com/r/qwex333/zhiyin)
+Backend Docker image: [**qwex333/zhiyin-music**](https://hub.docker.com/r/qwex333/zhiyin-music)
 
 ```bash
-docker pull qwex333/zhiyin:latest
+docker pull qwex333/zhiyin-music:latest
 ```
 
 Quick start with Docker Compose (example):
@@ -66,9 +66,9 @@ Quick start with Docker Compose (example):
 version: '3.8'
 
 services:
-  zhiyin:
-    image: qwex333/zhiyin:latest
-    container_name: zhiyin
+  zhiyin-music:
+    image: qwex333/zhiyin-music:latest
+    container_name: zhiyin-music
     
     ports:
       - "8080:8080"
@@ -79,10 +79,10 @@ services:
       - ./music:/music
       
       # 数据库目录可选（持久化）
-      - ./data:/data
+      #- ./data:/data
       
       # 封面缓存目录(可选， 如果想手动管理封面)
-      - ./covers:/covers
+      #- ./covers:/covers
       
       
       # Web 前端已内置于镜像中（/app/web）
@@ -118,7 +118,7 @@ services:
     # 健康检查（镜像中未安装 curl/wget，使用内置二进制的 HTTP 自检）
     # 如安装了 wget 可替换为: test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1"]
     healthcheck:
-      test: ["CMD", "zhiyin", "--health-check"]
+      test: ["CMD", "zhiyin-music", "--health-check"]
       interval: 30s
       timeout: 3s
       retries: 3
@@ -141,7 +141,7 @@ networks:
 # 7. 如需高级自定义：挂载 config.toml 或设置 MUSIC_* 环境变量
 #
 # 配置热重载（无需重启）：
-#   docker-compose kill -s SIGHUP zhiyin
+#   docker-compose kill -s SIGHUP zhiyin-music
 
 ```
 
@@ -189,7 +189,7 @@ proxy: {
 
 ## Sponsor & Support
 
-ZHIYIN is an open-source project, free to use. If you find it helpful, you can support the development by:
+ZHIYIN Music is an open-source project, free to use. If you find it helpful, you can support the development by:
 
 - ⭐ Starring the project
 - 🐛 Submitting Issues or PRs

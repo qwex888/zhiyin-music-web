@@ -15,8 +15,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'ZHIYIN Music',
-        short_name: 'ZHIYIN',
+        name: 'ZHIYIN Music Web',
+        short_name: 'ZHIYIN Music Web',
         description: '自部署 NAS 音乐流媒体 Web 客户端',
         theme_color: '#7c3aed',
         background_color: '#0f0f12',
