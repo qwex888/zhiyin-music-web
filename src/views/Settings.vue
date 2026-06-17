@@ -1,7 +1,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import { Settings, Globe, Palette, Monitor, Moon, Sun, RefreshCw, CheckCircle2, XCircle, Sliders, Save, HardDrive, Music, Shield, Plus, Trash2, Sparkles, Lock, Eye, EyeOff, KeyRound, ChevronRight, FlaskConical, FolderOpen } from 'lucide-vue-next';
+import { Settings, Globe, Palette, Monitor, Moon, Sun, RefreshCw, CheckCircle2, XCircle, Sliders, Save, HardDrive, Music, Shield, Plus, Trash2, Sparkles, Lock, Eye, EyeOff, KeyRound, ChevronRight, FlaskConical, FolderOpen, ArrowUpCircle, Star, MessageCircle, ExternalLink } from 'lucide-vue-next';
 import DirBrowser from '@/components/common/DirBrowser.vue';
 import { useTheme } from '@/composables/useTheme';
 import { usePlayerStore } from '@/stores/player';
@@ -45,6 +45,71 @@ let scanPollTimer: ReturnType<typeof setInterval> | null = null;
 const config = ref<SystemConfig | null>(null);
 const newRootPath = ref('');
 const showDirBrowser = ref(false);
+const latestVersion = ref<string | null>(null);
+
+const GITHUB_REPO_URL = 'https://github.com/qwex888/zhiyin-music-web';
+const GITHUB_ISSUES_URL = 'https://github.com/qwex888/zhiyin-music-web/issues';
+
+const compareVersions = (a: string, b: string): number => {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+};
+
+const hasUpdate = computed(() => {
+  if (!latestVersion.value || !healthInfo.value?.version) return false;
+  return compareVersions(latestVersion.value, healthInfo.value.version) > 0;
+});
+
+const VERSION_CACHE_KEY = 'zhiyin_latest_version';
+const VERSION_CACHE_TTL = 24 * 60 * 60 * 1000;
+
+const checkLatestVersion = async () => {
+  const API_URL = 'https://api.github.com/repos/qwex888/zhiyin-music-web/releases/latest';
+  try {
+    const cached = localStorage.getItem(VERSION_CACHE_KEY);
+    if (cached) {
+      const { version, etag, ts } = JSON.parse(cached);
+      if (Date.now() - ts < VERSION_CACHE_TTL) {
+        latestVersion.value = version;
+        return;
+      }
+      const headers: Record<string, string> = { Accept: 'application/vnd.github.v3+json' };
+      if (etag) headers['If-None-Match'] = etag;
+      const res = await fetch(API_URL, { headers });
+      if (res.status === 304) {
+        localStorage.setItem(VERSION_CACHE_KEY, JSON.stringify({ version, etag, ts: Date.now() }));
+        latestVersion.value = version;
+        return;
+      }
+      if (!res.ok) {
+        latestVersion.value = version;
+        return;
+      }
+      const data = await res.json();
+      const tag = data.tag_name?.replace(/^v/, '') || null;
+      const newEtag = res.headers.get('etag') || etag;
+      localStorage.setItem(VERSION_CACHE_KEY, JSON.stringify({ version: tag, etag: newEtag, ts: Date.now() }));
+      latestVersion.value = tag;
+    } else {
+      const res = await fetch(API_URL, { headers: { Accept: 'application/vnd.github.v3+json' } });
+      if (!res.ok) return;
+      const data = await res.json();
+      const tag = data.tag_name?.replace(/^v/, '') || null;
+      const etag = res.headers.get('etag') || '';
+      localStorage.setItem(VERSION_CACHE_KEY, JSON.stringify({ version: tag, etag, ts: Date.now() }));
+      latestVersion.value = tag;
+    }
+  } catch {
+    // network error, silently ignore
+  }
+};
 
 const isScanning = computed(() => scanStatus.value?.scanning === true);
 
@@ -351,6 +416,7 @@ onMounted(() => {
   checkHealth();
   fetchConfig();
   fetchScanStatus();
+  checkLatestVersion();
 });
 
 // ── 危险操作：重置所有数据 ──────────────────────────────────
@@ -1087,9 +1153,22 @@ onUnmounted(() => {
                        <p class="text-xs text-text-secondary">{{ t('settings.current_version') }}</p>
                     </div>
                  </div>
-                 <span class="font-mono text-sm bg-bg-elevate px-2 py-1 rounded text-text-primary">
-                   {{ healthInfo?.version || '-' }}
-                 </span>
+                 <div class="flex items-center gap-2">
+                   <span class="font-mono text-sm bg-bg-elevate px-2 py-1 rounded text-text-primary">
+                     v{{ healthInfo?.version || '-' }}
+                   </span>
+                   <a
+                     v-if="hasUpdate"
+                     :href="`${GITHUB_REPO_URL}/releases/latest`"
+                     target="_blank"
+                     rel="noopener noreferrer"
+                     class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 transition-colors"
+                     :title="t('settings.update_available_hint', { version: latestVersion })"
+                   >
+                     <ArrowUpCircle class="w-3.5 h-3.5" />
+                     {{ t('common.new_version', { version: latestVersion }) }}
+                   </a>
+                 </div>
               </div>
 
            </div>
@@ -1212,6 +1291,30 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- GitHub Community -->
+      <section class="space-y-6">
+        <h3 class="text-lg font-semibold text-text-primary border-b border-border pb-2 mb-4 flex items-center gap-2">
+          <Star class="w-5 h-5 text-amber-500" />
+          {{ t('settings.github_community') }}
+        </h3>
+        <div class="bg-bg-surface rounded-2xl border border-border p-6 space-y-4">
+          <p class="text-sm text-text-secondary">{{ t('settings.github_desc') }}</p>
+          <div class="flex flex-wrap gap-3">
+            <a :href="GITHUB_REPO_URL" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-bg-elevate border border-border text-text-primary hover:border-primary/40 hover:text-primary transition-colors">
+              <Star class="w-4 h-4" />
+              {{ t('settings.github_star') }}
+              <ExternalLink class="w-3.5 h-3.5 text-text-tertiary" />
+            </a>
+            <a :href="GITHUB_ISSUES_URL" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-bg-elevate border border-border text-text-primary hover:border-primary/40 hover:text-primary transition-colors">
+              <MessageCircle class="w-4 h-4" />
+              {{ t('settings.github_issues') }}
+              <ExternalLink class="w-3.5 h-3.5 text-text-tertiary" />
+            </a>
+          </div>
+          <p class="text-xs text-text-tertiary">{{ t('settings.github_issues_hint') }}</p>
         </div>
       </section>
 

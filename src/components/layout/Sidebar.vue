@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import GithubIcon from '@/components/common/GithubIcon.vue';
 import { Home, Library, Disc, Mic2, History, Settings, ChevronLeft, BarChart2, LogOut, Search, FolderTree, HardDrive } from 'lucide-vue-next';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -59,7 +60,7 @@ const menuItems = computed(() => [
 
     <!-- Logo 区域 -->
     <div class="h-20 flex items-center" :class="isCollapsed ? 'justify-center px-0' : 'px-6'">
-      <div class="flex items-center gap-2 overflow-hidden whitespace-nowrap">
+      <div class="flex items-center gap-2 overflow-hidden whitespace-nowrap flex-1">
         <Disc class="w-8 h-8 text-primary flex-shrink-0" />
         <h1 
           class="text-xl font-bold text-transparent bg-clip-text bg-primary-gradient transition-opacity duration-300"
@@ -68,6 +69,7 @@ const menuItems = computed(() => [
           ZHIYIN
         </h1>
       </div>
+      <GithubIcon v-if="!isCollapsed" />
     </div>
 
     <!-- 导航菜单 -->

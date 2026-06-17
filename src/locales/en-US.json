@@ -105,7 +105,9 @@
     "clear_search": "Clear search",
     "menu": "Menu",
     "cancel": "Cancel",
-    "toggle_sidebar": "Toggle sidebar"
+    "toggle_sidebar": "Toggle sidebar",
+    "github_repo": "GitHub Repository",
+    "new_version": "New version v{version}"
   },
   "home": {
     "stats": {
@@ -286,7 +288,13 @@
     "reset_execute": "Confirm Reset",
     "reset_success": "All data has been cleared",
     "reset_failed": "Failed to reset data, please check logs",
-    "experimental": "Experimental"
+    "experimental": "Experimental",
+    "github_community": "GitHub Community",
+    "github_desc": "ZHIYIN is a growing project. Contributions, suggestions, and bug reports are welcome.",
+    "github_star": "Star This Project",
+    "github_issues": "Feedback / Report Issues",
+    "github_issues_hint": "If you encounter any issues or have feature suggestions, feel free to submit them on GitHub Issues.",
+    "update_available_hint": "New version v{version} available, click to view"
   },
   "auth": {
     "login": "Login",
