@@ -932,7 +932,7 @@ onUnmounted(() => {
                 ? 'bg-primary/10 text-primary border-primary/30'
                 : 'bg-bg-surface text-text-secondary border-border hover:border-primary/20'"
             >
-              {{ t(f.labelKey) }}
+              {{ t(f.labelKey) }}{{filterStatus === f.value ? `(${selectableSessions.length})` : '' }}
             </button>
           </div>
           <button
