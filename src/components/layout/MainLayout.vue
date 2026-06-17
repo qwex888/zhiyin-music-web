@@ -56,7 +56,7 @@ watch(() => route.path, () => {
       <Sidebar class="hidden md:flex flex-shrink-0" />
       
       <!-- 主内容区 -->
-      <main class="flex-1 overflow-y-auto bg-bg-main scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-800 scrollbar-track-transparent p-4 md:p-0 relative">
+      <main class="flex-1 overflow-y-auto bg-bg-main scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-800 scrollbar-track-transparent p-4 pt-0 md:p-0 relative">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
             <component :is="Component" />
