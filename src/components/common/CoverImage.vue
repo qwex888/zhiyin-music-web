@@ -83,6 +83,9 @@ watch(() => props.coverId, (id) => {
   height: 100%;
   position: relative;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .cover-img {

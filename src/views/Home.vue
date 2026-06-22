@@ -215,39 +215,39 @@ const goViewAllRecent = () => {
         {{ t('home.stats.today') }}
       </h2>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div @click="router.push({ name: 'History' })" class="bg-bg-surface p-5 rounded-xl border border-border flex items-center gap-4 shadow-sm hover:border-primary/30 transition-all hover:bg-bg-elevate cursor-pointer">
+        <div @click="router.push({ name: 'History' })" class="bg-bg-surface p-3 md:p-5 rounded-xl border border-border flex items-center gap-4 shadow-sm hover:border-primary/30 transition-all hover:bg-bg-elevate cursor-pointer">
           <div class="p-3 rounded-full bg-primary/10 text-primary">
-            <Music2 class="w-6 h-6" />
+            <Music2 class="w-4 h-4 mg:w-6 mg:h-6" />
           </div>
           <div>
-            <div class="text-2xl font-bold text-text-primary">{{ stats.playback.total_plays.toLocaleString() }}</div>
+            <div class="text-xl md:text-2xl font-bold text-text-primary">{{ stats.playback.total_plays.toLocaleString() }}</div>
             <div class="text-sm text-text-secondary">{{ t('home.stats.total_plays') }}</div>
           </div>
         </div>
-        <div @click="router.push({ name: 'Songs' })" class="bg-bg-surface p-5 rounded-xl border border-border flex items-center gap-4 shadow-sm hover:border-pink-500/30 transition-all hover:bg-bg-elevate cursor-pointer">
+        <div @click="router.push({ name: 'Songs' })" class="bg-bg-surface p-3 md:p-5 rounded-xl border border-border flex items-center gap-4 shadow-sm hover:border-pink-500/30 transition-all hover:bg-bg-elevate cursor-pointer">
           <div class="p-3 rounded-full bg-pink-500/10 text-pink-500">
-            <Disc class="w-6 h-6" />
+            <Disc class="w-4 h-4 mg:w-6 mg:h-6" />
           </div>
           <div>
-            <div class="text-2xl font-bold text-text-primary">{{ stats?.library.total_songs?.toLocaleString() }}</div>
+            <div class="text-xl md:text-2xl font-bold text-text-primary">{{ stats?.library.total_songs?.toLocaleString() }}</div>
             <div class="text-sm text-text-secondary">{{ t('home.stats.total_songs') }}</div>
           </div>
         </div>
-         <div @click="router.push({ name: 'Stats' })" class="bg-bg-surface p-5 rounded-xl border border-border flex items-center gap-4 shadow-sm hover:border-emerald-500/30 transition-all hover:bg-bg-elevate cursor-pointer">
+         <div @click="router.push({ name: 'Stats' })" class="bg-bg-surface p-3 md:p-5 rounded-xl border border-border flex items-center gap-4 shadow-sm hover:border-emerald-500/30 transition-all hover:bg-bg-elevate cursor-pointer">
           <div class="p-3 rounded-full bg-emerald-500/10 text-emerald-500">
-            <BarChart3 class="w-6 h-6" />
+            <BarChart3 class="w-4 h-4 mg:w-6 mg:h-6" />
           </div>
           <div>
-            <div class="text-2xl font-bold text-text-primary">{{ stats?.playback.plays_last_7_days?.toLocaleString() }}</div>
+            <div class="text-xl md:text-2xl font-bold text-text-primary">{{ stats?.playback.plays_last_7_days?.toLocaleString() }}</div>
             <div class="text-sm text-text-secondary">{{ t('home.stats.recent_7days') }}</div>
           </div>
         </div>
-         <div @click="router.push({ name: 'Artists' })" class="bg-bg-surface p-5 rounded-xl border border-border flex items-center gap-4 shadow-sm hover:border-orange-500/30 transition-all hover:bg-bg-elevate cursor-pointer">
+         <div @click="router.push({ name: 'Artists' })" class="bg-bg-surface p-3 md:p-5 rounded-xl border border-border flex items-center gap-4 shadow-sm hover:border-orange-500/30 transition-all hover:bg-bg-elevate cursor-pointer">
           <div class="p-3 rounded-full bg-orange-500/10 text-orange-500">
-            <Users class="w-6 h-6" />
+            <Users class="w-4 h-4 mg:w-6 mg:h-6" />
           </div>
           <div>
-            <div class="text-2xl font-bold text-text-primary">{{ stats?.library.total_artists?.toLocaleString() }}</div>
+            <div class="text-xl md:text-2xl font-bold text-text-primary">{{ stats?.library.total_artists?.toLocaleString() }}</div>
             <div class="text-sm text-text-secondary">{{ t('home.stats.total_artists') }}</div>
           </div>
         </div>

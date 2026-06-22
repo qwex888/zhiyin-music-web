@@ -448,14 +448,14 @@ const seekToLyric = (time: number) => {
       </div>
 
       <!-- Content -->
-      <div class="flex-1 flex flex-col md:flex-row items-center justify-center p-4 md:p-6 pb-safe gap-4 md:gap-16 max-w-7xl mx-auto w-full overflow-hidden">
+      <div class="flex-1 flex flex-col lg:flex-row items-center justify-center p-4 lg:p-6 pb-safe gap-4 lg:gap-16 max-w-7xl mx-auto w-full overflow-hidden">
         <!-- Cover Art / Lyrics Container -->
-        <div class="w-full max-w-sm md:max-w-md flex-1 md:aspect-square relative group min-h-0">
+        <div class="w-full max-w-sm lg:max-w-md flex-1 lg:aspect-square relative group min-h-0">
           
           <!-- Cover Art -->
           <div v-show="!showLyrics" class="w-full h-full relative flex items-center justify-center">
             <div class="w-full aspect-square max-h-full relative">
-              <div class="w-full h-full rounded-2xl md:rounded-3xl overflow-hidden shadow-2xl border border-border/10 bg-bg-elevate relative z-10" 
+              <div class="w-full h-full rounded-2xl lg:rounded-3xl overflow-hidden shadow-2xl border border-border/10 bg-bg-elevate relative z-10" 
                    :class="{ 'cursor-pointer': hasLyrics }"
                    @click="hasLyrics && toggleLyrics()">
                 <CoverImage
@@ -484,10 +484,10 @@ const seekToLyric = (time: number) => {
           </div>
 
           <!-- Lyrics View -->
-          <div v-show="showLyrics" class="w-full h-full relative z-10 flex flex-col rounded-2xl md:rounded-3xl bg-bg-elevate/30 backdrop-blur-sm border border-white/5 overflow-hidden">
+          <div v-show="showLyrics" class="w-full h-full relative z-10 flex flex-col rounded-2xl lg:rounded-3xl bg-bg-elevate/30 backdrop-blur-sm border border-white/5 overflow-hidden">
              <div 
                ref="lyricsContainerRef"
-               class="flex-1 overflow-y-auto scrollbar-hide text-center space-y-5 md:space-y-8 px-4 py-[20%] md:py-[50%]"
+               class="flex-1 overflow-y-auto scrollbar-hide text-center space-y-5 lg:space-y-8 px-4 py-[20%] lg:py-[50%]"
                style="mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent); -webkit-mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent);"
              >
                 <div v-if="lyrics.length === 0" class="h-full flex items-center justify-center text-text-secondary/50 italic">
@@ -496,19 +496,19 @@ const seekToLyric = (time: number) => {
                 <div 
                   v-for="(line, index) in lyrics" 
                   :key="index"
-                  class="transition-all duration-500 cursor-pointer select-none space-y-0.5 md:space-y-1"
+                  class="transition-all duration-500 cursor-pointer select-none space-y-0.5 lg:space-y-1"
                   :class="index === currentLyricIndex ? 'scale-105 active-lyric' : 'scale-100'"
                   @click.stop="seekToLyric(line.time)"
                 >
                   <p 
-                    class="text-base md:text-2xl font-medium transition-all duration-500 leading-relaxed"
+                    class="text-base lg:text-2xl font-medium transition-all duration-500 leading-relaxed"
                     :class="index === currentLyricIndex ? 'text-primary drop-shadow-md' : 'text-text-secondary/40 hover:text-text-secondary/80'"
                   >
                     {{ line.text }}
                   </p>
                   <p 
                     v-if="line.trans"
-                    class="text-xs md:text-base font-normal transition-all duration-500 leading-relaxed"
+                    class="text-xs lg:text-base font-normal transition-all duration-500 leading-relaxed"
                     :class="index === currentLyricIndex ? 'text-primary/80' : 'text-text-secondary/30 hover:text-text-secondary/60'"
                   >
                     {{ line.trans }}
@@ -519,11 +519,12 @@ const seekToLyric = (time: number) => {
         </div>
 
         <!-- Controls Section -->
-        <div class="w-full max-w-md flex flex-col gap-4 md:gap-10 flex-shrink-0">
+        <div class="w-full max-w-md flex flex-col gap-4 lg:gap-10 flex-shrink-0">
           <!-- Song Info -->
-          <div class="text-center md:text-left space-y-1 md:space-y-2">
-            <div class="flex items-center justify-center md:justify-start gap-2 md:gap-3">
-              <h2 class="text-xl md:text-4xl font-bold text-text-primary line-clamp-2">
+          <div class="text-center lg:text-left space-y-1 lg:space-y-2">
+            <div class="flex items-center justify-center lg:justify-start gap-2 lg:gap-3">
+              <div class="flex items-center gap-2 flex-1">
+                <h2 class="text-xl lg:text-4xl font-bold text-text-primary line-clamp-2">
                 {{ playerStore.currentSong?.title || t('player.playing') }}
               </h2>
               <!-- STRM Badge -->
@@ -540,6 +541,7 @@ const seekToLyric = (time: number) => {
               >
                 {{ isCurrentStrm ? 'ORI' : qualityShortLabels[playerStore.quality] }}
               </span>
+              </div>
               <!-- Lyrics Badge -->
               <button 
                 @click="hasLyrics && toggleLyrics()"
@@ -554,7 +556,7 @@ const seekToLyric = (time: number) => {
                 {{ hasLyrics ? t('player.has_lyrics') : t('player.no_lyrics') }}
               </button>
             </div>
-            <p class="text-base md:text-xl text-text-secondary font-medium">
+            <p class="text-base lg:text-xl text-text-secondary font-medium">
               {{ playerStore.currentSong?.artist || t('common.unknown_artist') }}
             </p>
           </div>
@@ -586,7 +588,7 @@ const seekToLyric = (time: number) => {
                 class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               />
             </div>
-            <div class="flex justify-between text-xs md:text-sm text-text-tertiary font-mono">
+            <div class="flex justify-between text-xs lg:text-sm text-text-tertiary font-mono">
               <span>{{ formatTime(playerStore.progress) }}</span>
               <span>{{ formatTime(playerStore.duration) }}</span>
             </div>
@@ -609,16 +611,16 @@ const seekToLyric = (time: number) => {
               class="p-2 text-text-primary hover:text-primary transition-colors"
               :title="t('player.prev')"
             >
-              <SkipBack class="w-8 h-8 md:w-10 md:h-10 fill-current" />
+              <SkipBack class="w-8 h-8 lg:w-10 lg:h-10 fill-current" />
             </button>
 
             <button 
               @click="playerStore.togglePlay" 
-              class="w-16 h-16 md:w-20 md:h-20 rounded-full bg-primary-gradient hover:scale-105 text-white flex items-center justify-center transition-all shadow-xl shadow-primary/20"
+              class="w-16 h-16 lg:w-20 lg:h-20 rounded-full bg-primary-gradient hover:scale-105 text-white flex items-center justify-center transition-all shadow-xl shadow-primary/20"
               :title="playerStore.isPlaying ? t('player.paused') : t('player.playing')"
             >
-              <Pause v-if="playerStore.isPlaying" class="w-8 h-8 md:w-10 md:h-10 fill-current" />
-              <Play v-else class="w-8 h-8 md:w-10 md:h-10 fill-current ml-1" />
+              <Pause v-if="playerStore.isPlaying" class="w-8 h-8 lg:w-10 lg:h-10 fill-current" />
+              <Play v-else class="w-8 h-8 lg:w-10 lg:h-10 fill-current ml-1" />
             </button>
 
             <button 
@@ -626,7 +628,7 @@ const seekToLyric = (time: number) => {
               class="p-2 text-text-primary hover:text-primary transition-colors"
               :title="t('player.next')"
             >
-              <SkipForward class="w-8 h-8 md:w-10 md:h-10 fill-current" />
+              <SkipForward class="w-8 h-8 lg:w-10 lg:h-10 fill-current" />
             </button>
 
             <!-- 播放队列按钮 -->
@@ -640,7 +642,7 @@ const seekToLyric = (time: number) => {
           </div>
 
           <!-- Volume Control (PC Only) -->
-          <div class="hidden md:flex items-center gap-4 px-4 py-2 bg-bg-elevate/50 rounded-xl w-64 mx-auto">
+          <div class="hidden lg:flex items-center gap-4 px-4 py-2 bg-bg-elevate/50 rounded-xl w-64 mx-auto">
              <Volume2 class="w-5 h-5 text-text-secondary" />
              <input 
                type="range" 

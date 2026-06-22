@@ -16,6 +16,7 @@ const isLoadingMore = ref(false);
 const hasMore = ref(true);
 const hasError = ref(false);
 const searchQuery = ref('');
+const viewMode = ref<'grid' | 'list'>('grid');
 const scrollContainer = ref<HTMLElement | null>(null);
 let fetchId = 0;
 
@@ -139,10 +140,18 @@ onUnmounted(() => {
            </button>
          </div>
          <div class="flex bg-bg-surface rounded-lg p-1 border border-border">
-           <button class="p-1.5 rounded bg-bg-elevate text-text-primary shadow-sm">
+           <button
+             @click="viewMode = 'grid'"
+             class="p-1.5 rounded transition-colors"
+             :class="viewMode === 'grid' ? 'bg-bg-elevate text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'"
+           >
              <Grid class="w-4 h-4" />
            </button>
-           <button class="p-1.5 rounded text-text-secondary hover:text-text-primary transition-colors">
+           <button
+             @click="viewMode = 'list'"
+             class="p-1.5 rounded transition-colors"
+             :class="viewMode === 'list' ? 'bg-bg-elevate text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'"
+           >
              <List class="w-4 h-4" />
            </button>
          </div>
@@ -175,7 +184,8 @@ onUnmounted(() => {
 
     <!-- Album Grid -->
     <template v-else>
-      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+      <!-- Grid View -->
+      <div v-if="viewMode === 'grid'" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
         <div 
           v-for="album in albums" 
           :key="album.id"
@@ -205,6 +215,41 @@ onUnmounted(() => {
             <div class="text-sm text-text-secondary truncate">{{ album.artist_name || t('common.unknown') }}</div>
             <div class="text-xs text-text-tertiary mt-1">{{ album.year || t('albums.unknown_year') }} • {{ t('albums.count', { count: album.song_ids?.length || 0 }) }}</div>
           </div>
+        </div>
+      </div>
+
+      <!-- List View -->
+      <div v-else class="space-y-1">
+        <div
+          v-for="album in albums"
+          :key="album.id"
+          class="group flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-bg-elevate transition-colors cursor-pointer border border-transparent hover:border-border"
+        >
+          <div class="relative w-14 h-14 md:w-16 md:h-16 flex-shrink-0 rounded-lg overflow-hidden border border-border bg-bg-elevate">
+            <CoverImage
+              :cover-id="album.cover_id"
+              size="small"
+              lazy
+              img-class="group-hover:scale-105 transition-transform duration-300"
+            >
+              <template #fallback>
+                <div class="w-full h-full flex items-center justify-center text-text-tertiary">
+                  <Disc class="w-7 h-7" />
+                </div>
+              </template>
+            </CoverImage>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold text-text-primary truncate group-hover:text-primary transition-colors">{{ album.name }}</div>
+            <div class="text-sm text-text-secondary truncate">{{ album.artist_name || t('common.unknown') }}</div>
+          </div>
+          <div class="hidden md:flex items-center gap-6 text-sm text-text-tertiary flex-shrink-0">
+            <span class="tabular-nums w-12 text-right">{{ album.year || '—' }}</span>
+            <span class="tabular-nums w-16 text-right">{{ t('albums.count', { count: album.song_ids?.length || 0 }) }}</span>
+          </div>
+          <button class="p-2 rounded-full opacity-0 group-hover:opacity-100 bg-primary-gradient text-white shadow-lg transition-all hover:scale-110 flex-shrink-0">
+            <Play class="w-4 h-4 fill-current ml-0.5" />
+          </button>
         </div>
       </div>
 

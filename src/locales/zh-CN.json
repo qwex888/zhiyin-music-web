@@ -158,6 +158,13 @@
   "songs": {
     "title": "所有歌曲",
     "play_all": "播放全部",
+    "artist": "艺术家",
+    "album": "专辑",
+    "sort_recent": "最近添加",
+    "sort_title": "按标题",
+    "sort_artist": "按艺术家",
+    "sort_duration": "按时长",
+    "sort_year": "按年份",
     "table": {
       "title": "标题",
       "artist": "艺术家",

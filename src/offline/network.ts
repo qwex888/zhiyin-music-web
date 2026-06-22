@@ -2,9 +2,11 @@ import { ref, computed } from 'vue';
 import { useOnline } from '@vueuse/core';
 
 const backendReachable = ref(false);
+const healthCheckDone = ref(false);
 
 export function setBackendReachable(value: boolean): void {
   backendReachable.value = value;
+  healthCheckDone.value = true;
 }
 
 export function isBrowserOnline(): boolean {
@@ -24,7 +26,7 @@ export function useAppConnectivity() {
   const browserOnline = useOnline();
 
   const isOffline = computed(
-    () => !browserOnline.value || !backendReachable.value
+    () => healthCheckDone.value && (!browserOnline.value || !backendReachable.value)
   );
 
   const statusLabel = computed(() => {

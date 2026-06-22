@@ -267,7 +267,7 @@ onMounted(() => {
             </div>
             <div class="flex justify-between items-center py-2 border-b border-border/50">
               <span class="text-sm text-text-secondary">{{ t('stats.fragmentation') }}</span>
-              <span class="font-mono text-text-primary">{{ stats.system.database_fragmentation_percent }}%</span>
+              <span class="font-mono text-text-primary">{{ Number(stats.system.database_fragmentation_percent).toFixed(2) }}%</span>
             </div>
             <div class="flex justify-between items-center py-2 border-b border-border/50">
               <span class="text-sm text-text-secondary">{{ t('stats.recommendation_cache') }}</span>

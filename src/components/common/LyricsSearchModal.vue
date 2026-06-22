@@ -57,8 +57,8 @@ const results = ref<LyricsResult[]>([]);
 // 解析 LRC 为带时间戳的行
 const parseLrc = (lrc: string | null): LrcLine[] => {
   if (!lrc) return [];
-  return lrc.split('\n').map(line => {
-    const match = line.match(/^\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)/);
+  return lrc.split(/\r?\n/).map(line => {
+    const match = line.match(/^\[(\d{2}):(\d{2})(?:[.:：](\d{2,3}))?\](.*)/);
     if (match) {
       const min = parseInt(match[1]);
       const sec = parseInt(match[2]);
@@ -72,14 +72,13 @@ const parseLrc = (lrc: string | null): LrcLine[] => {
   }).filter((item): item is LrcLine => item !== null);
 };
 
-// 缓存每条结果的解析歌词
-const parsedLyricsMap = ref<Map<number, LrcLine[]>>(new Map());
+// 使用 computed 确保响应式正确，避免在 render 期间修改状态
+const allParsedLyrics = computed(() =>
+  results.value.map(r => parseLrc(r.lyrics_full))
+);
 
 const getParsedLyrics = (index: number): LrcLine[] => {
-  if (parsedLyricsMap.value.has(index)) return parsedLyricsMap.value.get(index)!;
-  const parsed = parseLrc(results.value[index]?.lyrics_full);
-  parsedLyricsMap.value.set(index, parsed);
-  return parsed;
+  return allParsedLyrics.value[index] || [];
 };
 
 // 查找当前时间对应的高亮行
@@ -103,43 +102,71 @@ const formatTimeTag = (secs: number): string => {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 };
 
-// 自动滚动
+// 自动滚动：保持高亮行始终居中
 const slideRefs = ref<(HTMLElement | null)[]>([]);
+const lyricsPaddingHeight = ref(150);
+
 const setSlideRef = (el: any, index: number) => {
   slideRefs.value[index] = el as HTMLElement | null;
 };
 
+const getCarouselHeight = (): number => {
+  return carouselRef.value?.clientHeight || 300;
+};
+
 let scrollRafId: number | null = null;
-const scrollToActiveLine = (slideIndex: number, lineIndex: number) => {
+let userScrollTimer: ReturnType<typeof setTimeout> | null = null;
+let isUserScrolling = false;
+let isProgrammaticScroll = false;
+
+const scrollToActiveLine = (slideIndex: number, lineIndex: number, immediate = false) => {
   if (scrollRafId) cancelAnimationFrame(scrollRafId);
   scrollRafId = requestAnimationFrame(() => {
     const container = slideRefs.value[slideIndex];
     if (!container || lineIndex < 0) return;
+    const containerHeight = getCarouselHeight();
+    lyricsPaddingHeight.value = Math.floor(containerHeight / 2);
     const lineEl = container.querySelector(`[data-line-index="${lineIndex}"]`) as HTMLElement | null;
     if (!lineEl) return;
-    const containerRect = container.getBoundingClientRect();
-    const lineRect = lineEl.getBoundingClientRect();
-    const targetScroll = lineEl.offsetTop - containerRect.height / 2 + lineRect.height / 2;
-    container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+    const targetScroll = lineEl.offsetTop - containerHeight / 2 + lineEl.offsetHeight / 2;
+    isProgrammaticScroll = true;
+    container.scrollTo({ top: Math.max(0, targetScroll), behavior: immediate ? 'instant' : 'smooth' });
+    setTimeout(() => { isProgrammaticScroll = false; }, immediate ? 50 : 600);
   });
 };
 
-// activeLineIndex 变化时自动滚动
+// 检测用户手动滚动，短暂暂停自动滚动以避免冲突
+const onLyricsScroll = (index: number) => {
+  if (index !== currentIndex.value) return;
+  if (isProgrammaticScroll) return;
+  isUserScrolling = true;
+  if (userScrollTimer) clearTimeout(userScrollTimer);
+  userScrollTimer = setTimeout(() => {
+    isUserScrolling = false;
+  }, 3000);
+};
+
+// activeLineIndex 变化时自动滚动（高亮行切换）
 let lastScrolledLine = -1;
 const stopActiveLineWatch = watch(
   activeLineIndex,
   (activeIdx) => {
     if (!props.modelValue || results.value.length === 0) return;
+    if (activeIdx < 0) return;
     if (activeIdx !== lastScrolledLine) {
       lastScrolledLine = activeIdx;
-      scrollToActiveLine(currentIndex.value, activeIdx);
+      if (!isUserScrolling) {
+        scrollToActiveLine(currentIndex.value, activeIdx);
+      }
     }
-  }
+  },
+  { flush: 'post' }
 );
 
 onBeforeUnmount(() => {
   stopActiveLineWatch();
   if (scrollRafId) cancelAnimationFrame(scrollRafId);
+  if (userScrollTimer) clearTimeout(userScrollTimer);
 });
 
 watch(() => props.modelValue, (val) => {
@@ -150,18 +177,23 @@ watch(() => props.modelValue, (val) => {
     results.value = [];
     currentIndex.value = 0;
     songDurationSecs.value = props.songDuration ?? null;
-    parsedLyricsMap.value.clear();
     lastScrolledLine = -1;
+    isUserScrolling = false;
+    if (userScrollTimer) clearTimeout(userScrollTimer);
   }
 });
 
 // 切换 slide 后定位到当前播放行
 watch(currentIndex, () => {
   lastScrolledLine = -1;
+  isUserScrolling = false;
+  if (userScrollTimer) clearTimeout(userScrollTimer);
   nextTick(() => {
-    if (activeLineIndex.value >= 0) {
-      scrollToActiveLine(currentIndex.value, activeLineIndex.value);
-    }
+    nextTick(() => {
+      if (activeLineIndex.value >= 0) {
+        scrollToActiveLine(currentIndex.value, activeLineIndex.value, true);
+      }
+    });
   });
 });
 
@@ -198,8 +230,9 @@ const handleSearch = async () => {
   isSearching.value = true;
   results.value = [];
   currentIndex.value = 0;
-  parsedLyricsMap.value.clear();
   lastScrolledLine = -1;
+  isUserScrolling = false;
+  if (userScrollTimer) clearTimeout(userScrollTimer);
   try {
     const { data } = await musicApi.searchLyrics(props.songId, {
       title: title.value.trim() || undefined,
@@ -213,8 +246,11 @@ const handleSearch = async () => {
     if (data.results.length === 0) {
       toast.info(t('lyrics.no_results'));
     } else {
+      // 双重 nextTick：第一次让 DOM 渲染，第二次确保布局计算（含动态 padding）完成
       nextTick(() => {
-        if (activeLineIndex.value >= 0) scrollToActiveLine(0, activeLineIndex.value);
+        nextTick(() => {
+          scrollToActiveLine(0, activeLineIndex.value, true);
+        });
       });
     }
   } catch {
@@ -319,7 +355,7 @@ const sourceColor = (source: string) => {
       <div v-if="modelValue" class="fixed inset-0 z-[200] flex md:items-center md:justify-center" @click.self="close">
         <div class="hidden md:block absolute inset-0 bg-black/50 backdrop-blur-sm" @click="close"></div>
 
-        <div class="relative w-full h-full md:w-[560px] md:h-auto md:max-h-[85vh] bg-bg-surface md:rounded-2xl md:border border-border shadow-2xl flex flex-col z-10 overflow-hidden">
+        <div class="relative w-full h-full md:w-[560px] md:h-[85vh] bg-bg-surface md:rounded-2xl md:border border-border shadow-2xl flex flex-col z-10 overflow-hidden">
           <!-- Header -->
           <div class="flex items-center justify-between px-4 py-3 md:px-5 md:py-4 border-b border-border flex-shrink-0">
             <div class="flex items-center gap-2">
@@ -461,9 +497,12 @@ const sourceColor = (source: string) => {
                   :key="`${result.source}-${result.song_id}`"
                   class="w-full flex-shrink-0 h-full overflow-y-auto px-5 md:px-12 py-3 lyrics-scroll-container"
                   :ref="(el) => setSlideRef(el, index)"
+                  @scroll="onLyricsScroll(index)"
                 >
                   <!-- 解析后的 LRC 歌词：带时间高亮 -->
                   <template v-if="getParsedLyrics(index).length > 0">
+                    <!-- 顶部留白确保开头几行能滚动到中间 -->
+                    <div :style="{ height: lyricsPaddingHeight + 'px' }"></div>
                     <div
                       v-for="(line, lineIdx) in getParsedLyrics(index)"
                       :key="lineIdx"
@@ -488,7 +527,7 @@ const sourceColor = (source: string) => {
                       >{{ line.text }}</span>
                     </div>
                     <!-- 底部留白确保最后几行能滚动到中间 -->
-                    <div class="h-[40vh]"></div>
+                    <div :style="{ height: lyricsPaddingHeight + 'px' }"></div>
                   </template>
                   <!-- 降级：非 LRC 格式或解析失败 -->
                   <pre

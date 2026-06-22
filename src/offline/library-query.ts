@@ -13,6 +13,10 @@ export interface ListQueryParams {
   limit?: number;
   offset?: number;
   q?: string;
+  sort_by?: string;
+  sort_order?: string;
+  artist_id?: number;
+  album_id?: number;
 }
 
 function paginate<T>(
