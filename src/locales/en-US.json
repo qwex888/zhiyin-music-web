@@ -71,6 +71,7 @@
   "player": {
     "playing": "Now Playing",
     "paused": "Paused",
+    "buffering": "Buffering",
     "queue": "Queue",
     "next": "Next",
     "prev": "Previous",

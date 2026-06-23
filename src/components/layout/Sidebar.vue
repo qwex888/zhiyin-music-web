@@ -55,7 +55,7 @@ const menuItems = computed(() => [
 
     <!-- Logo 区域 -->
     <div class="h-20 flex items-center" :class="isCollapsed ? 'justify-center px-0' : 'px-6'">
-      <div class="flex items-center gap-2 overflow-hidden whitespace-nowrap flex-1">
+      <div class="flex items-center gap-2 overflow-hidden whitespace-nowrap flex-1" :class="isCollapsed ? 'justify-center' : ''">
         <Disc class="w-8 h-8 text-primary flex-shrink-0" />
         <h1 class="text-xl font-bold text-transparent bg-clip-text bg-primary-gradient transition-opacity duration-300"
           :class="isCollapsed ? 'opacity-0 w-0' : 'opacity-100'">

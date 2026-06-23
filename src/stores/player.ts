@@ -34,6 +34,7 @@ export const usePlayerStore = defineStore('player', () => {
   const queue = ref<Song[]>([]);
   const currentIndex = ref(-1);
   const isPlaying = ref(false);
+  const isBuffering = ref(false);
   const volume = ref(1.0);
   const playMode = ref<'sequence' | 'repeat-all' | 'repeat-one' | 'shuffle'>('sequence');
   const quality = ref<'low' | 'medium' | 'high' | 'lossless' | 'original'>('original');
@@ -118,6 +119,7 @@ export const usePlayerStore = defineStore('player', () => {
 
     destroySound();
     revokeObjectUrl();
+    isBuffering.value = true;
 
     if (resetProgress) {
       progress.value = 0;
@@ -141,6 +143,7 @@ export const usePlayerStore = defineStore('player', () => {
         if (song.cover_id) cacheCoverInBackground(song.cover_id);
       } catch (err: any) {
         if (gen !== soundGeneration) return gen;
+        isBuffering.value = false;
         isPlaying.value = false;
         if (err?.response?.status !== 401) {
           toast.error(i18n.global.t('offline.play_token_failed'));
@@ -149,6 +152,7 @@ export const usePlayerStore = defineStore('player', () => {
       }
     } else {
       toast.error(i18n.global.t('offline.play_not_cached'));
+      isBuffering.value = false;
       isPlaying.value = false;
       return gen;
     }
@@ -174,36 +178,45 @@ export const usePlayerStore = defineStore('player', () => {
       },
       onplay: () => {
         if (gen !== soundGeneration) return;
+        isBuffering.value = false;
         isPlaying.value = true;
         strmRetryCount = 0;
         startProgressTimer();
         if (needsCache) {
           void bgCache(cacheTargetId, cacheTargetQuality);
         }
+        // 监听 HTML5 audio 的 waiting/playing 事件以检测播放中缓冲
+        try {
+          const node = (sound as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
+          if (node) {
+            node.onwaiting = () => { if (gen === soundGeneration) isBuffering.value = true; };
+            node.onplaying = () => { if (gen === soundGeneration) isBuffering.value = false; };
+          }
+        } catch { /* ignore */ }
       },
       onpause: () => {
         if (gen !== soundGeneration) return;
+        isBuffering.value = false;
         isPlaying.value = false;
         stopProgressTimer();
       },
       onend: () => {
         if (gen !== soundGeneration) return;
+        isBuffering.value = false;
         isPlaying.value = false;
         stopProgressTimer();
         next();
       },
       onloaderror: () => {
         if (gen !== soundGeneration) return;
-        // STRM 歌曲：proxy 模式下流结束可能触发 loaderror 而非 ended，
-        // 如果已播放过（progress > 0），视为正常结束并切换下一首
         if (isStrmSong(song) && progress.value > 0) {
           destroySound();
+          isBuffering.value = false;
           isPlaying.value = false;
           stopProgressTimer();
           next();
           return;
         }
-        // STRM 歌曲首次加载失败时自动重试（远程源可能需要准备数据）
         if (isStrmSong(song) && strmRetryCount < STRM_MAX_RETRIES) {
           const delay = STRM_RETRY_DELAYS[strmRetryCount] ?? 8000;
           strmRetryCount++;
@@ -219,6 +232,7 @@ export const usePlayerStore = defineStore('player', () => {
           return;
         }
         destroySound();
+        isBuffering.value = false;
         isPlaying.value = false;
         strmRetryCount = 0;
         const msg = isStrmSong(song)
@@ -230,12 +244,12 @@ export const usePlayerStore = defineStore('player', () => {
         if (gen !== soundGeneration) return;
         if (isStrmSong(song) && progress.value > 0) {
           destroySound();
+          isBuffering.value = false;
           isPlaying.value = false;
           stopProgressTimer();
           next();
           return;
         }
-        // STRM 歌曲播放错误也触发重试
         if (isStrmSong(song) && strmRetryCount < STRM_MAX_RETRIES) {
           const delay = STRM_RETRY_DELAYS[strmRetryCount] ?? 8000;
           strmRetryCount++;
@@ -251,6 +265,7 @@ export const usePlayerStore = defineStore('player', () => {
           return;
         }
         destroySound();
+        isBuffering.value = false;
         isPlaying.value = false;
         strmRetryCount = 0;
         const msg = isStrmSong(song)
@@ -314,6 +329,7 @@ export const usePlayerStore = defineStore('player', () => {
   };
 
   const togglePlay = () => {
+    if (isBuffering.value) return;
     if (isPlaying.value) {
       pause();
     } else {
@@ -541,6 +557,7 @@ export const usePlayerStore = defineStore('player', () => {
     currentSong.value = null;
     queue.value = [];
     currentIndex.value = -1;
+    isBuffering.value = false;
     isPlaying.value = false;
     progress.value = 0;
     duration.value = 0;
@@ -551,6 +568,7 @@ export const usePlayerStore = defineStore('player', () => {
     queue,
     currentIndex,
     isPlaying,
+    isBuffering,
     volume,
     playMode,
     quality,
@@ -573,8 +591,8 @@ export const usePlayerStore = defineStore('player', () => {
   persist: {
     paths: ['currentSong', 'queue', 'currentIndex', 'volume', 'playMode', 'quality', 'progress', 'duration'],
     afterRestore: (ctx: any) => {
-      // Ensure isPlaying is false on restore to avoid UI showing pause button when no audio is playing
       ctx.store.isPlaying = false;
+      ctx.store.isBuffering = false;
     }
   } as any
 });

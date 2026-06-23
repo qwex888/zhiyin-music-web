@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { usePlayerStore } from '@/stores/player';
-import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, Volume2, Music2, ListMusic, List, Maximize2, Cloud } from 'lucide-vue-next';
+import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, Volume2, Music2, ListMusic, List, Maximize2, Cloud, Loader2 } from 'lucide-vue-next';
 import { isStrmSong } from '@/types';
 import CoverImage from '@/components/common/CoverImage.vue';
 import { useI18n } from 'vue-i18n';
@@ -161,9 +161,12 @@ const toggleQuality = () => {
       <button 
         @click="playerStore.togglePlay" 
         class="w-9 h-9 md:w-10 md:h-10 rounded-full bg-primary-gradient hover:scale-105 text-white flex items-center justify-center transition-all shadow-lg shadow-primary/20 flex-shrink-0"
-        :title="playerStore.isPlaying ? t('player.paused') : t('player.playing')"
+        :class="{ 'opacity-75 cursor-not-allowed hover:!scale-100': playerStore.isBuffering }"
+        :disabled="playerStore.isBuffering"
+        :title="playerStore.isBuffering ? t('player.buffering') : (playerStore.isPlaying ? t('player.paused') : t('player.playing'))"
       >
-        <Pause v-if="playerStore.isPlaying" class="w-4 h-4 md:w-5 md:h-5 fill-current" />
+        <Loader2 v-if="playerStore.isBuffering" class="w-4 h-4 md:w-5 md:h-5 animate-spin" />
+        <Pause v-else-if="playerStore.isPlaying" class="w-4 h-4 md:w-5 md:h-5 fill-current" />
         <Play v-else class="w-4 h-4 md:w-5 md:h-5 fill-current ml-0.5" />
       </button>
 

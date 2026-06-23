@@ -2,7 +2,7 @@
 import { ref, computed, onUnmounted, watch, nextTick } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useI18n } from 'vue-i18n';
-import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, ChevronDown, Music2, ListMusic, Volume2, Mic2, List, Cloud, MoreHorizontal, Info, Share2 } from 'lucide-vue-next';
+import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, ChevronDown, Music2, ListMusic, Volume2, Mic2, List, Cloud, MoreHorizontal, Info, Share2, Loader2 } from 'lucide-vue-next';
 import { isStrmSong } from '@/types';
 import { musicApi } from '@/api/music';
 import { songEvents } from '@/utils/songEvents';
@@ -617,9 +617,12 @@ const seekToLyric = (time: number) => {
             <button 
               @click="playerStore.togglePlay" 
               class="w-16 h-16 lg:w-20 lg:h-20 rounded-full bg-primary-gradient hover:scale-105 text-white flex items-center justify-center transition-all shadow-xl shadow-primary/20"
-              :title="playerStore.isPlaying ? t('player.paused') : t('player.playing')"
+              :class="{ 'opacity-75 cursor-not-allowed hover:!scale-100': playerStore.isBuffering }"
+              :disabled="playerStore.isBuffering"
+              :title="playerStore.isBuffering ? t('player.buffering') : (playerStore.isPlaying ? t('player.paused') : t('player.playing'))"
             >
-              <Pause v-if="playerStore.isPlaying" class="w-8 h-8 lg:w-10 lg:h-10 fill-current" />
+              <Loader2 v-if="playerStore.isBuffering" class="w-8 h-8 lg:w-10 lg:h-10 animate-spin" />
+              <Pause v-else-if="playerStore.isPlaying" class="w-8 h-8 lg:w-10 lg:h-10 fill-current" />
               <Play v-else class="w-8 h-8 lg:w-10 lg:h-10 fill-current ml-1" />
             </button>
 
