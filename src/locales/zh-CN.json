@@ -287,7 +287,7 @@
     "sidecar_settings": "元数据文件",
     "sidecar_settings_desc": "为 STRM 文件生成元数据文件，便于迁移和快速扫描识别",
     "metadata_format": "元数据文件格式",
-    "metadata_format_desc": "刮削 STRM 文件时生成的元数据文件格式（二选一）",
+    "metadata_format_desc": "刮削 STRM 文件时生成的元数据文件格式（json/nfo 二选一）",
     "sidecar_for_all": "所有文件启用元数据读取",
     "sidecar_for_all_desc": "默认仅 STRM 文件在扫描时读取元数据文件，普通音频直接解析嵌入标签",
     "browse_directory": "浏览目录",

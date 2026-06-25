@@ -57,7 +57,15 @@ export const musicApi = {
   replaceLyrics: (id: number, lyrics: string) => {
     return api.post<{ success: boolean; method: string }>(`/songs/${id}/lyrics/replace`, { lyrics });
   },
-  reportDuration: (id: number, durationSecs: number) => {
-    return api.post<{ updated: boolean }>(`/songs/${id}/duration`, { duration_secs: durationSecs });
+  reportMetadata: (id: number, data: {
+    duration_secs?: number;
+    bitrate?: number;
+    sample_rate?: number;
+    channels?: number;
+    bit_depth?: number;
+    codec?: string;
+    force?: boolean;
+  }) => {
+    return api.post<{ updated: boolean; fields_updated: string[] }>(`/songs/${id}/metadata`, data);
   },
 };

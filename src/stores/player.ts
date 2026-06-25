@@ -171,9 +171,18 @@ export const usePlayerStore = defineStore('player', () => {
       onload: () => {
         if (gen !== soundGeneration) return;
         duration.value = sound?.duration() || 0;
-        // STRM 歌曲且无时长记录时，回报时长给后端补全元数据
-        if (isStrmSong(song) && !song.duration_secs && duration.value > 0 && isFinite(duration.value)) {
-          musicApi.reportDuration(song.id, duration.value).catch(() => {});
+        // STRM 歌曲存在缺失音频属性时，上报浏览器能获取到的数据，后端会异步 ffprobe 补全其余字段
+        if (isStrmSong(song) && duration.value > 0 && isFinite(duration.value)) {
+          const hasMissing = !song.duration_secs
+            || song.bitrate == null
+            || song.sample_rate == null
+            || song.channels == null
+            || song.bit_depth == null
+            || !song?.codec
+            || song.codec == null;
+          if (hasMissing) {
+            musicApi.reportMetadata(song.id, { duration_secs: duration.value }).catch(() => {});
+          }
         }
       },
       onplay: () => {

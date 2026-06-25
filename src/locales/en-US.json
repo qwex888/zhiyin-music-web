@@ -280,7 +280,7 @@
     "sidecar_settings": "Sidecar Metadata Files",
     "sidecar_settings_desc": "Generate sidecar metadata files for STRM files to facilitate migration and fast scan identification",
     "metadata_format": "Sidecar File Format",
-    "metadata_format_desc": "Metadata sidecar file format generated when scraping STRM files (mutually exclusive)",
+    "metadata_format_desc": "Metadata sidecar file format generated when scraping STRM files (json/nfo mutually exclusive)",
     "sidecar_for_all": "Enable sidecar reading for all files",
     "sidecar_for_all_desc": "By default, only STRM files read sidecar files during scanning; regular audio parses embedded tags directly",
     "browse_directory": "Browse Directory",

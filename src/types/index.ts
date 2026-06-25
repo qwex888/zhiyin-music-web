@@ -38,6 +38,7 @@ export interface Song {
   created_at?: string;
   updated_at?: string;
   source_type?: SourceType;
+  codec?: string | null;
 }
 
 export function isStrmSong(song: Song | null | undefined): boolean {
