@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { queryBatchSongs, queryArtists } from '@/offline/library-query';
+import { queryBatchSongs, queryArtistById } from '@/offline/library-query';
 import type { Song, Artist } from '@/types';
 import { ArrowLeft, Play, Users, Loader2 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
@@ -37,8 +37,7 @@ const fetchArtistDetail = async () => {
   isLoading.value = true;
   const artistId = Number(route.params.id);
   try {
-    const data = await queryArtists({ limit: 9999, offset: 0 });
-    artist.value = data.items.find(a => a.id === artistId) || null;
+    artist.value = await queryArtistById(artistId);
 
     if (artist.value?.song_ids?.length) {
       songs.value = await queryBatchSongs(artist.value.song_ids);

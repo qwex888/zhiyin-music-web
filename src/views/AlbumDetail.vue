@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { queryBatchSongs, queryAlbums } from '@/offline/library-query';
+import { queryBatchSongs, queryAlbumById } from '@/offline/library-query';
 import type { Song, Album } from '@/types';
 import { ArrowLeft, Play, Disc, Loader2 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
@@ -37,13 +37,7 @@ const fetchAlbumDetail = async () => {
   isLoading.value = true;
   const albumId = Number(route.params.id);
   try {
-    const data = await queryAlbums({ limit: 1, offset: 0, q: undefined });
-    album.value = data.items.find(a => a.id === albumId) || null;
-
-    if (!album.value) {
-      const allData = await queryAlbums({ limit: 9999, offset: 0 });
-      album.value = allData.items.find(a => a.id === albumId) || null;
-    }
+    album.value = await queryAlbumById(albumId);
 
     if (album.value?.song_ids?.length) {
       songs.value = await queryBatchSongs(album.value.song_ids);

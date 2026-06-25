@@ -233,8 +233,8 @@ onMounted(() => {
     toast.info(t('offline.route_blocked'));
   }
   fetchSongs();
-  libraryStore.fetchArtists({ limit: 5000 });
-  libraryStore.fetchAlbums({ limit: 5000 });
+  libraryStore.fetchArtists({ limit: 1000 });
+  libraryStore.fetchAlbums({ limit: 1000 });
 });
 </script>
 

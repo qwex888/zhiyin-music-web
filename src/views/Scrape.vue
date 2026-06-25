@@ -41,7 +41,7 @@ const isCreatingScrape = ref(false);
 const fetchAllLibrarySongs = async () => {
   isLoadingLibrary.value = true;
   hasLibraryError.value = false;
-  const pageSize = 500;
+  const pageSize = 200;
   let offset = 0;
   const allSongs: Song[] = [];
   try {
@@ -49,7 +49,7 @@ const fetchAllLibrarySongs = async () => {
       const { data } = await musicApi.getSongs({ limit: pageSize, offset });
       allSongs.push(...data.items);
       if (!data.has_next) break;
-      offset += pageSize;
+      offset += data.items.length;
     }
     librarySongs.value = allSongs;
   } catch {
@@ -750,8 +750,8 @@ const parseDetail = (json: string | null): Record<string, unknown> | null => {
 onMounted(() => {
   fetchAllLibrarySongs();
   fetchSessions();
-  libraryStore.fetchArtists({ limit: 5000 });
-  libraryStore.fetchAlbums({ limit: 5000 });
+  libraryStore.fetchArtists({ limit: 1000 });
+  libraryStore.fetchAlbums({ limit: 1000 });
   // 检查是否有正在进行的自动刮削
   scrapeApi.getAutoScrapeStatus().then(({ data }) => {
     if (data.running) {

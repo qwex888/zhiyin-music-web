@@ -92,8 +92,16 @@ const isAllSelected = computed(() =>
 const loadSongs = async () => {
   isLoadingSongs.value = true;
   try {
-    const { data } = await musicApi.getSongs({ limit: 500, offset: 0 });
-    songs.value = data.items;
+    const pageSize = 1000;
+    let offset = 0;
+    const allSongs: Song[] = [];
+    while (true) {
+      const { data } = await musicApi.getSongs({ limit: pageSize, offset });
+      allSongs.push(...data.items);
+      if (!data.has_next) break;
+      offset += data.items.length;
+    }
+    songs.value = allSongs;
     songsLoaded.value = true;
     showSongList.value = true;
   } catch (e) {

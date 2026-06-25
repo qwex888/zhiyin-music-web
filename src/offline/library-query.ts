@@ -215,6 +215,46 @@ export async function queryArtists(
   );
 }
 
+export async function queryArtistById(id: number): Promise<Artist | null> {
+  if (isAppOnline()) {
+    try {
+      const { data } = await musicApi.getArtist(id);
+      await upsertArtists([data]);
+      return data;
+    } catch {
+      if (await hasLocalLibrary()) {
+        return (await offlineDb.artists.get(id)) || null;
+      }
+      throw new Error('FETCH_FAILED');
+    }
+  }
+
+  if (await hasLocalLibrary()) {
+    return (await offlineDb.artists.get(id)) || null;
+  }
+  throw new Error('NO_LOCAL_LIBRARY');
+}
+
+export async function queryAlbumById(id: number): Promise<Album | null> {
+  if (isAppOnline()) {
+    try {
+      const { data } = await musicApi.getAlbum(id);
+      await upsertAlbums([data]);
+      return data;
+    } catch {
+      if (await hasLocalLibrary()) {
+        return (await offlineDb.albums.get(id)) || null;
+      }
+      throw new Error('FETCH_FAILED');
+    }
+  }
+
+  if (await hasLocalLibrary()) {
+    return (await offlineDb.albums.get(id)) || null;
+  }
+  throw new Error('NO_LOCAL_LIBRARY');
+}
+
 export async function queryBatchSongs(ids: number[]): Promise<Song[]> {
   if (ids.length === 0) return [];
 

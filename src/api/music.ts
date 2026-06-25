@@ -16,8 +16,14 @@ export const musicApi = {
   getAlbums: (params: { limit?: number; offset?: number; q?: string } = {}) => {
     return api.get<PaginatedResponse<Album>>('/albums', { params });
   },
+  getAlbum: (id: number) => {
+    return api.get<Album>(`/albums/${id}`);
+  },
   getArtists: (params: { limit?: number; offset?: number; q?: string } = {}) => {
     return api.get<PaginatedResponse<Artist>>('/artists', { params });
+  },
+  getArtist: (id: number) => {
+    return api.get<Artist>(`/artists/${id}`);
   },
   getBatchSongs: (ids: number[]) => {
     return api.post<Song[]>('/songs/batch', { ids });
