@@ -1,1 +1,23 @@
-[]
+[
+  {
+    "version": "v0.6.1",
+    "published_at": "2026-07-01T07:09:07Z",
+    "summary": "1 项新功能",
+    "changes": {
+      "feature": [
+        "Implement user management and changelog features"
+      ],
+      "fix": [],
+      "perf": [],
+      "refactor": [
+        "Improve media session handling and pause management"
+      ],
+      "docs": [],
+      "build": [],
+      "ci": [],
+      "style": [],
+      "test": [],
+      "chore": []
+    }
+  }
+]
