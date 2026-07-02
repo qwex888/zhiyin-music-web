@@ -88,14 +88,13 @@ git commit --amend --no-edit || true
 # 推送到远程
 git push origin "$BRANCH"
 git push origin "$TAG"
-info "已推送到远程，GitHub Actions 构建已触发"
-
-if command -v gh &>/dev/null && [ -f release_notes.md ]; then
-  gh release create "$TAG" --title "$TAG" --notes-file release_notes.md || warn "GitHub Release 创建失败"
-fi
+info "已推送到远程，GitHub Actions 将构建并创建 Release（含 dist.tar.gz）"
 
 echo ""
-echo -e "${GREEN}🎉 发布完成!${NC}"
+echo -e "${GREEN}🎉 发布已触发!${NC}"
 echo "   版本: ${TAG}"
 echo "   查看构建: https://github.com/qwex888/zhiyin-music-web/actions"
 echo "   查看发布: https://github.com/qwex888/zhiyin-music-web/releases"
+echo ""
+echo "   说明: GitHub Release 由 CI 创建并上传 dist.tar.gz，请勿在本地执行 gh release create"
+echo "   若 CI 失败，可在 Actions 中手动重跑「Build & Release」并输入 tag: ${TAG}"

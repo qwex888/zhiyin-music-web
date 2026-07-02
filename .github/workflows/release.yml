@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '重新发布的 tag（如 v0.6.1）'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -12,10 +18,20 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ref=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ steps.tag.outputs.ref }}
 
       - name: Enable pnpm via corepack
         run: corepack enable pnpm
@@ -40,7 +56,7 @@ jobs:
         run: |
           # 获取上一个 tag（如果存在）
           PREV_TAG=$(git tag --sort=-version:refname | sed -n '2p')
-          CURRENT_TAG=${GITHUB_REF#refs/tags/}
+          CURRENT_TAG="${{ steps.tag.outputs.ref }}"
 
           if [ -z "$PREV_TAG" ]; then
             # 第一个 tag，获取所有 commit
@@ -61,10 +77,20 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Create Release
+      - name: Create or update Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" dist.tar.gz \
-            --title "Release ${{ github.ref_name }}" \
-            --notes "${{ steps.release_notes.outputs.notes }}"
+          TAG="${{ steps.tag.outputs.ref }}"
+          NOTES="${{ steps.release_notes.outputs.notes }}"
+
+          # 本地 release.sh 可能已创建空 Release；此处幂等上传 dist.tar.gz
+          if gh release view "$TAG" &>/dev/null; then
+            echo "Release $TAG 已存在，上传/更新 dist.tar.gz..."
+            gh release upload "$TAG" dist.tar.gz --clobber
+            gh release edit "$TAG" --title "Release $TAG" --notes "$NOTES"
+          else
+            gh release create "$TAG" dist.tar.gz \
+              --title "Release $TAG" \
+              --notes "$NOTES"
+          fi
