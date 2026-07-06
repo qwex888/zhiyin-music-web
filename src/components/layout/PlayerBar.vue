@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { usePlayerStore } from '@/stores/player';
-import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, Volume2, Music2, ListMusic, List, Maximize2, Cloud, HardDriveDownload, Loader2 } from 'lucide-vue-next';
+import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, Volume2, Music2, ListMusic, List, Maximize2, Cloud, Loader2 } from 'lucide-vue-next';
 import { isStrmSong } from '@/types';
 import { hasCachedAudioAnyQuality } from '@/offline/media-cache';
 import CoverImage from '@/components/common/CoverImage.vue';
@@ -152,11 +152,6 @@ const toggleQuality = () => {
              v-if="isStrmSong(playerStore.currentSong)"
              class="w-4 h-4 flex-shrink-0 text-sky-400"
              :title="t('player.strm_badge')"
-           />
-           <HardDriveDownload
-             v-if="isCurrentCached"
-             class="w-4 h-4 flex-shrink-0 text-emerald-400"
-             :title="t('offline.cached_badge')"
            />
          </div>
          <div class="text-xs text-text-secondary truncate">{{ playerStore.currentSong.artist }}</div>

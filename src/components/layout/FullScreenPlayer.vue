@@ -3,7 +3,7 @@ import { ref, computed, onUnmounted, watch, nextTick } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useAuthStore } from '@/stores/auth';
 import { useI18n } from 'vue-i18n';
-import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, ChevronDown, Music2, ListMusic, Volume2, Mic2, List, Cloud, HardDriveDownload, MoreHorizontal, Info, Share2, Loader2 } from 'lucide-vue-next';
+import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, ChevronDown, Music2, ListMusic, Volume2, Mic2, List, Cloud, MoreHorizontal, Info, Share2, Loader2 } from 'lucide-vue-next';
 import { isStrmSong } from '@/types';
 import { musicApi } from '@/api/music';
 import { hasCachedAudioAnyQuality } from '@/offline/media-cache';
@@ -587,11 +587,6 @@ const seekToLyric = (time: number) => {
                 v-if="isStrmSong(playerStore.currentSong)"
                 class="w-6 h-6 flex-shrink-0 text-sky-400"
                 :title="t('player.strm_badge')"
-              />
-              <HardDriveDownload
-                v-if="isCurrentCached"
-                class="w-5 h-5 flex-shrink-0 text-emerald-400"
-                :title="t('offline.cached_badge')"
               />
               <!-- Quality Badge -->
               <span

@@ -2,7 +2,7 @@
 import { ref, toRefs, onMounted, watch, nextTick, computed, type Component } from 'vue';
 import { useVirtualList, useInfiniteScroll, onClickOutside } from '@vueuse/core';
 import type { Song, RecentSong } from '@/types';
-import { Play, Pause, Clock, MoreHorizontal, Loader2, AlertCircle, RefreshCw, Inbox, ListPlus, Search, Info, HardDriveDownload, Cloud, Mic2 } from 'lucide-vue-next';
+import { Play, Pause, Clock, MoreHorizontal, Loader2, AlertCircle, RefreshCw, Inbox, ListPlus, Search, Info, Cloud, Mic2 } from 'lucide-vue-next';
 import { isStrmSong } from '@/types';
 import { usePlayerStore } from '@/stores/player';
 import { useLibraryStore } from '@/stores/library';
@@ -267,10 +267,6 @@ const handlePlay = (song: Song | RecentSong) => {
                   v-if="isStrmSong(song)"
                   class="w-3 h-3 flex-shrink-0 text-sky-400"
                 />
-                <HardDriveDownload
-                  v-if="cachedIds.has(song.id)"
-                  class="w-3 h-3 flex-shrink-0 text-emerald-400"
-                />
                 <span class="text-xs text-text-secondary truncate">{{ getArtistName(song) }}</span>
               </div>
               <div class="hidden md:flex items-center gap-1 mt-0.5 min-w-0">
@@ -278,11 +274,6 @@ const handlePlay = (song: Song | RecentSong) => {
                   v-if="isStrmSong(song)"
                   class="w-3 h-3 flex-shrink-0 text-sky-400"
                   :title="t('player.strm_badge')"
-                />
-                <HardDriveDownload
-                  v-if="cachedIds.has(song.id)"
-                  class="w-3 h-3 flex-shrink-0 text-emerald-400"
-                  :title="t('offline.cached_badge')"
                 />
               </div>
             </div>

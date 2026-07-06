@@ -12,6 +12,7 @@ import CoverImage from '@/components/common/CoverImage.vue';
 import dayjs from 'dayjs';
 import { useOfflineStore } from '@/stores/offline';
 import { offlineDb } from '@/offline/db';
+import { getCachedSongIds } from '@/offline/media-cache';
 
 const playerStore = usePlayerStore();
 const offlineStore = useOfflineStore();
@@ -35,7 +36,16 @@ const formatTimeAgo = (date: string | undefined) => {
 const showOfflineFallback = async () => {
   isOfflineView.value = true;
   await offlineStore.refreshMeta();
-  localSongs.value = await offlineDb.songs.limit(12).toArray();
+  const cachedIds = await getCachedSongIds();
+  if (cachedIds.size > 0) {
+    localSongs.value = await offlineDb.songs
+      .where('id')
+      .anyOf([...cachedIds])
+      .limit(12)
+      .toArray();
+  } else {
+    localSongs.value = [];
+  }
 };
 
 const fetchData = async () => {

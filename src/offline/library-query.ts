@@ -8,6 +8,7 @@ import {
   upsertArtists,
 } from './db';
 import { isAppOnline } from './network';
+import { getCachedSongIds } from './media-cache';
 
 export interface ListQueryParams {
   limit?: number;
@@ -49,10 +50,19 @@ async function querySongsLocal(
 ): Promise<PaginatedResponse<Song>> {
   const limit = params.limit ?? 50;
   const offset = params.offset ?? 0;
+  const cachedIds = await getCachedSongIds();
+
+  if (cachedIds.size === 0) {
+    return paginate([], limit, offset);
+  }
+
+  let items = await offlineDb.songs
+    .where('id')
+    .anyOf([...cachedIds])
+    .toArray();
 
   if (params.q?.trim()) {
     const q = params.q.trim();
-    let items = await offlineDb.songs.toArray();
     items = items.filter((s) => {
       const artist = s.artist_name || s.artist || '';
       const album = s.album_name || s.album || '';
@@ -62,29 +72,10 @@ async function querySongsLocal(
         matchQuery(album, q)
       );
     });
-    items.sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'));
-    return paginate(items, limit, offset);
   }
 
-  const total = await offlineDb.songs.count();
-  const items = await offlineDb.songs
-    .orderBy('title')
-    .offset(offset)
-    .limit(limit)
-    .toArray();
-
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-  const page = Math.floor(offset / limit) + 1;
-  return {
-    items,
-    total,
-    limit,
-    offset,
-    page,
-    total_pages: totalPages,
-    has_next: offset + limit < total,
-    has_prev: offset > 0,
-  };
+  items.sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'));
+  return paginate(items, limit, offset);
 }
 
 async function queryAlbumsLocal(
@@ -92,38 +83,40 @@ async function queryAlbumsLocal(
 ): Promise<PaginatedResponse<Album>> {
   const limit = params.limit ?? 50;
   const offset = params.offset ?? 0;
+  const cachedIds = await getCachedSongIds();
+
+  if (cachedIds.size === 0) {
+    return paginate([], limit, offset);
+  }
+
+  const cachedSongs = await offlineDb.songs
+    .where('id')
+    .anyOf([...cachedIds])
+    .toArray();
+  const cachedAlbumIds = new Set(
+    cachedSongs.map((s) => s.album_id).filter((id): id is number => id != null)
+  );
+
+  if (cachedAlbumIds.size === 0) {
+    return paginate([], limit, offset);
+  }
+
+  let items = await offlineDb.albums
+    .where('id')
+    .anyOf([...cachedAlbumIds])
+    .toArray();
 
   if (params.q?.trim()) {
     const q = params.q.trim();
-    let items = await offlineDb.albums.toArray();
     items = items.filter(
       (a) =>
         matchQuery(a.name, q) ||
         matchQuery(a.artist_name || '', q)
     );
-    items.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
-    return paginate(items, limit, offset);
   }
 
-  const total = await offlineDb.albums.count();
-  const items = await offlineDb.albums
-    .orderBy('name')
-    .offset(offset)
-    .limit(limit)
-    .toArray();
-
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-  const page = Math.floor(offset / limit) + 1;
-  return {
-    items,
-    total,
-    limit,
-    offset,
-    page,
-    total_pages: totalPages,
-    has_next: offset + limit < total,
-    has_prev: offset > 0,
-  };
+  items.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+  return paginate(items, limit, offset);
 }
 
 async function queryArtistsLocal(
@@ -131,34 +124,36 @@ async function queryArtistsLocal(
 ): Promise<PaginatedResponse<Artist>> {
   const limit = params.limit ?? 50;
   const offset = params.offset ?? 0;
+  const cachedIds = await getCachedSongIds();
+
+  if (cachedIds.size === 0) {
+    return paginate([], limit, offset);
+  }
+
+  const cachedSongs = await offlineDb.songs
+    .where('id')
+    .anyOf([...cachedIds])
+    .toArray();
+  const cachedArtistIds = new Set(
+    cachedSongs.map((s) => s.artist_id).filter((id): id is number => id != null)
+  );
+
+  if (cachedArtistIds.size === 0) {
+    return paginate([], limit, offset);
+  }
+
+  let items = await offlineDb.artists
+    .where('id')
+    .anyOf([...cachedArtistIds])
+    .toArray();
 
   if (params.q?.trim()) {
     const q = params.q.trim();
-    let items = await offlineDb.artists.toArray();
     items = items.filter((a) => matchQuery(a.name, q));
-    items.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
-    return paginate(items, limit, offset);
   }
 
-  const total = await offlineDb.artists.count();
-  const items = await offlineDb.artists
-    .orderBy('name')
-    .offset(offset)
-    .limit(limit)
-    .toArray();
-
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-  const page = Math.floor(offset / limit) + 1;
-  return {
-    items,
-    total,
-    limit,
-    offset,
-    page,
-    total_pages: totalPages,
-    has_next: offset + limit < total,
-    has_prev: offset > 0,
-  };
+  items.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+  return paginate(items, limit, offset);
 }
 
 async function fetchWithOfflineFallback<T>(
