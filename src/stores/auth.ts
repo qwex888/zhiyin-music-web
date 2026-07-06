@@ -34,7 +34,13 @@ export const useAuthStore = defineStore(STORE_KEY, () => {
       initialized.value = data.initialized;
       return data.initialized;
     } catch {
-      initialized.value = null;
+      // 已有 token 说明系统此前已完成初始化，将 500 等瞬态错误视为"已初始化"
+      // 避免 initialized 停留在 null 导致路由守卫反复调用此接口
+      if (token.value) {
+        initialized.value = true;
+        return true;
+      }
+      initialized.value = false;
       return false;
     }
   };
