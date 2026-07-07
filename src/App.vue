@@ -14,7 +14,7 @@ import { useTheme } from '@/composables/useTheme';
 import { usePlayerStore } from '@/stores/player';
 import { useLibraryStore } from '@/stores/library';
 import { useOfflineStore } from '@/stores/offline';
-import { setBackendReachable } from '@/offline/network';
+import { setBackendReachable, resetHealthCheck } from '@/offline/network';
 import { detectOrphans, orphanDetected, orphanIds } from '@/offline/orphan-detector';
 
 const route = useRoute();
@@ -74,6 +74,13 @@ const checkHealth = async () => {
     await offlineStore.refreshMeta();
   }
 };
+
+watch(() => authStore.isAuthenticated, (authenticated) => {
+  if (authenticated) {
+    resetHealthCheck();
+    void checkHealth();
+  }
+});
 
 watch(browserOnline, (online) => {
   if (authStore.isAuthenticated) {

@@ -7,7 +7,7 @@ import {
   upsertAlbums,
   upsertArtists,
 } from './db';
-import { isAppOnline } from './network';
+import { isAppOnline, waitForHealthCheck } from './network';
 import { getCachedSongIds } from './media-cache';
 
 export interface ListQueryParams {
@@ -162,6 +162,8 @@ async function fetchWithOfflineFallback<T>(
   upsert: (items: T[]) => Promise<void>,
   params: ListQueryParams
 ): Promise<PaginatedResponse<T>> {
+  await waitForHealthCheck();
+
   if (isAppOnline()) {
     try {
       const { data } = await onlineFetch();
@@ -211,6 +213,7 @@ export async function queryArtists(
 }
 
 export async function queryArtistById(id: number): Promise<Artist | null> {
+  await waitForHealthCheck();
   if (isAppOnline()) {
     try {
       const { data } = await musicApi.getArtist(id);
@@ -231,6 +234,7 @@ export async function queryArtistById(id: number): Promise<Artist | null> {
 }
 
 export async function queryAlbumById(id: number): Promise<Album | null> {
+  await waitForHealthCheck();
   if (isAppOnline()) {
     try {
       const { data } = await musicApi.getAlbum(id);
@@ -253,6 +257,7 @@ export async function queryAlbumById(id: number): Promise<Album | null> {
 export async function queryBatchSongs(ids: number[]): Promise<Song[]> {
   if (ids.length === 0) return [];
 
+  await waitForHealthCheck();
   if (isAppOnline()) {
     try {
       const { data } = await musicApi.getBatchSongs(ids);
