@@ -1,5 +1,31 @@
 [
   {
+    "version": "v0.6.2",
+    "published_at": "2026-07-07T03:38:04Z",
+    "summary": "2 项新功能、2 项修复",
+    "changes": {
+      "feature": [
+        "feat(offline): Enhance health check management and integrate into querying logic",
+        "feat: Enhance release note generation and localization support"
+      ],
+      "fix": [
+        "fix(auth): Improve initialization handling in useAuthStore",
+        "fix(ci): 修复 Release 重复创建，CI 幂等上传 dist.tar.gz"
+      ],
+      "perf": [],
+      "refactor": [
+        "refactor: Remove HardDriveDownload component from player UI and enhance offline song querying"
+      ],
+      "docs": [],
+      "i18n": [],
+      "build": [],
+      "ci": [],
+      "style": [],
+      "test": [],
+      "chore": []
+    }
+  },
+  {
     "version": "v0.6.1",
     "published_at": "2026-07-01T07:09:07Z",
     "summary": "1 项新功能",
