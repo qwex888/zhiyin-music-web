@@ -74,16 +74,16 @@ git add package.json
 git commit -m "release: ${TAG}"
 info "已提交版本变更"
 
-# 创建 tag
-git tag -a "$TAG" -m "Release ${TAG}"
-info "已创建 tag: ${TAG}"
-
-# 生成版本发布数据
+# 生成版本发布数据（在创建 tag 之前，确保 release_notes.md 包含在 tag 指向的 commit 中）
 chmod +x scripts/generate-release-data.sh
 ./scripts/generate-release-data.sh "$NEW_VERSION"
 mkdir -p releases
 git add package.json releases/ release_notes.md 2>/dev/null || git add package.json release_notes.md
 git commit --amend --no-edit || true
+
+# 创建 tag（必须在 amend 之后，否则 tag 指向旧 commit）
+git tag -a "$TAG" -m "Release ${TAG}"
+info "已创建 tag: ${TAG}"
 
 # 推送到远程
 git push origin "$BRANCH"
