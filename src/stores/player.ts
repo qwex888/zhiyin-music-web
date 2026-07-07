@@ -491,8 +491,11 @@ export const usePlayerStore = defineStore('player', () => {
     } else if (currentSong.value && !sound) {
       // 从持久化恢复（页面刷新后）
       const isStrm = isStrmSong(currentSong.value);
-      const resetProg = isStrm;
-      const savedProgress = isStrm ? 0 : progress.value;
+      const q = (isStrm ? 'original' : quality.value) as StreamQuality;
+      const isCached = isStrm ? await hasCachedAudio(currentSong.value.id, q) : true;
+      const canResume = !isStrm || isCached;
+      const resetProg = !canResume;
+      const savedProgress = canResume ? progress.value : 0;
 
       const genBefore = soundGeneration;
       await initSound(currentSong.value, resetProg);
@@ -650,8 +653,27 @@ export const usePlayerStore = defineStore('player', () => {
   };
 
   const seek = (time: number) => {
-    sound?.seek(time);
-    progress.value = time;
+    if (!sound || !duration.value || !isFinite(time) || time < 0) return;
+    const clampedTime = Math.min(time, duration.value);
+
+    if (isPlaying.value) {
+      pendingPauseSource = 'system';
+    }
+    sound.seek(clampedTime);
+    progress.value = clampedTime;
+
+    // Howler 在 audio.duration 为 NaN 时跳过 currentTime 赋值，
+    // 直接操作 audio element 作为回退
+    setTimeout(() => {
+      if (!sound) return;
+      const node = (sound as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
+      if (!node) return;
+      const actual = node.currentTime;
+      if (Math.abs(actual - clampedTime) > 1) {
+        console.warn('[Player] seek 回退: Howler 未生效，直接设置 currentTime', { target: clampedTime, actual });
+        try { node.currentTime = clampedTime; } catch { /* ignore */ }
+      }
+    }, 50);
   };
 
   const setVolume = (vol: number) => {
