@@ -26,6 +26,20 @@ if (manifest.length > 0) {
 const AUDIO_CACHE = 'zhiyin-audio-v1';
 const STREAM_PATH_RE = /^\/api\/stream\/(\d+)$/;
 const pendingCaches = new Map<string, Promise<void>>();
+const activeDownloads = new Map<string, AbortController>();
+
+// 监听客户端取消下载指令
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'cancel-audio-download') {
+    const { songId, quality } = event.data;
+    const key = `/_c/audio/${songId}/${quality || 'original'}`;
+    const ac = activeDownloads.get(key);
+    if (ac) {
+      ac.abort();
+      activeDownloads.delete(key);
+    }
+  }
+});
 
 self.addEventListener('fetch', (event: FetchEvent) => {
   const url = new URL(event.request.url);
@@ -62,13 +76,20 @@ async function handleStreamRequest(
     const fetchHeaders = new Headers(event.request.headers);
     fetchHeaders.delete('Range');
 
+    const ac = new AbortController();
+    activeDownloads.set(cacheKey, ac);
+
     const response = await fetch(event.request.url, {
       method: 'GET',
       headers: fetchHeaders,
       credentials: event.request.credentials,
+      signal: ac.signal,
     });
 
-    if (!response.ok) return response;
+    if (!response.ok) {
+      activeDownloads.delete(cacheKey);
+      return response;
+    }
 
     // 4. clone → 后台写入缓存，并注册到 pendingCaches 供去重
     const cloneForCache = response.clone();
@@ -81,7 +102,10 @@ async function handleStreamRequest(
         });
       })
       .catch(() => {})
-      .finally(() => pendingCaches.delete(cacheKey));
+      .finally(() => {
+        pendingCaches.delete(cacheKey);
+        activeDownloads.delete(cacheKey);
+      });
     pendingCaches.set(cacheKey, cacheP);
     event.waitUntil(cacheP);
 

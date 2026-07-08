@@ -6,6 +6,7 @@ import { musicApi } from '@/api/music';
 import { Howl, Howler } from 'howler';
 import { useToast } from '@/composables/useToast';
 import { useLibraryStore } from '@/stores/library';
+import { useQueueManager } from '@/composables/useQueueManager';
 import i18n from '@/i18n';
 import {
   getCachedAudioObjectUrl,
@@ -37,7 +38,6 @@ export const usePlayerStore = defineStore('player', () => {
   const libraryStore = useLibraryStore();
   // State
   const currentSong = ref<Song | null>(null);
-  const queue = ref<Song[]>([]);
   const currentIndex = ref(-1);
   const isPlaying = ref(false);
   const isBuffering = ref(false);
@@ -46,10 +46,15 @@ export const usePlayerStore = defineStore('player', () => {
   const quality = ref<'low' | 'medium' | 'high' | 'lossless' | 'original'>('original');
   const progress = ref(0);
   const duration = ref(0);
-  
-  // 随机播放相关状态
-  const shuffleHistory = ref<number[]>([]); // 随机播放历史记录（索引）
-  const shuffleRemaining = ref<number[]>([]); // 剩余未播放的歌曲索引
+
+  // 队列管理委托给 useQueueManager
+  const {
+    queue,
+    addToQueue,
+    setQueue,
+    resolveNextIndex,
+    resolvePrevIndex,
+  } = useQueueManager(playMode, currentIndex);
   
   let sound: Howl | null = null;
   let soundGeneration = 0;
@@ -113,7 +118,7 @@ export const usePlayerStore = defineStore('player', () => {
         if (currentSong.value?.id !== songId) return;
         const { data } = await musicApi.getStreamToken(songId, quality);
         const url = musicApi.buildStreamUrl(songId, quality, data.stream_token);
-        await cacheAudioFromStreamUrl(url, songId, quality);
+        await cacheAudioFromStreamUrl(url, songId, quality, ac.signal);
       } finally {
         swCacheNotifier.delete(key);
         unwatch();
@@ -124,6 +129,16 @@ export const usePlayerStore = defineStore('player', () => {
   }
 
   let visibilityHandler: (() => void) | null = null;
+
+  const cancelSwDownload = (songId: number, songQuality: StreamQuality) => {
+    if (navigator.serviceWorker?.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: 'cancel-audio-download',
+        songId,
+        quality: songQuality,
+      });
+    }
+  };
 
   const destroySound = () => {
     if (sound) {
@@ -299,15 +314,10 @@ export const usePlayerStore = defineStore('player', () => {
         } catch { /* ignore */ }
       },
       onpause: () => {
-        const pauseSource = gen === soundGeneration ? consumePauseIntent() : null;
-        console.log('[Player] onpause', {
-          songId: song?.id,
-          progress: progress.value,
-          isStrm: isStrmSong(song),
-          pauseSource: pauseSource ?? 'external',
-          wasUnexpectedlyPaused,
-        });
         if (gen !== soundGeneration) return;
+        // 如果有 pending system pause（如 seek 触发），跳过状态变更，
+        // 由 DOM pause listener 统一消费意图
+        if (pendingPauseSource) return;
         isBuffering.value = false;
         isPlaying.value = false;
         setMediaSessionPlaybackState(false);
@@ -440,6 +450,12 @@ export const usePlayerStore = defineStore('player', () => {
     if (song) {
       const needsInit = currentSong.value?.id !== song.id || !sound;
       if (needsInit) {
+        // 切歌时取消上一首歌的 SW 下载（必须在 currentSong 更新前执行）
+        if (currentSong.value && currentSong.value.id !== song.id) {
+          const prevQ = (isStrmSong(currentSong.value) ? 'original' : quality.value) as StreamQuality;
+          cancelSwDownload(currentSong.value.id, prevQ);
+        }
+
         const enrichedSong = { ...song };
         if (!enrichedSong.artist) {
           if (enrichedSong.artist_name) {
@@ -534,40 +550,6 @@ export const usePlayerStore = defineStore('player', () => {
     }
   };
 
-  // 初始化随机播放池
-  const initShufflePool = () => {
-    shuffleRemaining.value = Array.from({ length: queue.value.length }, (_, i) => i);
-    // 移除当前正在播放的歌曲
-    if (currentIndex.value >= 0) {
-      const idx = shuffleRemaining.value.indexOf(currentIndex.value);
-      if (idx > -1) {
-        shuffleRemaining.value.splice(idx, 1);
-      }
-    }
-  };
-
-  // 获取下一首随机歌曲的索引
-  const getNextShuffleIndex = (): number => {
-    // 如果剩余池为空，重新初始化（排除当前歌曲）
-    if (shuffleRemaining.value.length === 0) {
-      initShufflePool();
-    }
-    
-    // 如果还是空（只有一首歌的情况），返回当前索引
-    if (shuffleRemaining.value.length === 0) {
-      return currentIndex.value;
-    }
-    
-    // 从剩余池中随机选择
-    const randomIdx = Math.floor(Math.random() * shuffleRemaining.value.length);
-    const nextIndex = shuffleRemaining.value[randomIdx];
-    
-    // 从剩余池中移除
-    shuffleRemaining.value.splice(randomIdx, 1);
-    
-    return nextIndex;
-  };
-
   const replayCurrentSong = () => {
     if (sound) {
       sound.seek(0);
@@ -588,38 +570,12 @@ export const usePlayerStore = defineStore('player', () => {
     const now = Date.now();
     if (now < skipThrottleUntil) return;
     skipThrottleUntil = now + SKIP_THROTTLE_MS;
-    
-    let nextIndex = currentIndex.value + 1;
-    
-    if (playMode.value === 'shuffle') {
-      nextIndex = getNextShuffleIndex();
-      if (currentIndex.value >= 0) {
-        shuffleHistory.value.push(currentIndex.value);
-        if (shuffleHistory.value.length > 50) {
-          shuffleHistory.value.shift();
-        }
-      }
-    } else if (playMode.value === 'repeat-one') {
-      nextIndex = currentIndex.value;
-    } else if (playMode.value === 'repeat-all') {
-      if (nextIndex >= queue.value.length) {
-        nextIndex = 0;
-      }
-    } else {
-      // 顺序播放：播放完列表最后一首即停止
-      if (nextIndex >= queue.value.length) {
-        stopPlayback();
-        return;
-      }
-    }
-    
-    if (nextIndex === currentIndex.value) {
-      replayCurrentSong();
-      return;
-    }
-    
-    currentIndex.value = nextIndex;
-    play(queue.value[nextIndex]);
+
+    const nextIdx = resolveNextIndex();
+    if (nextIdx === 'stop') { stopPlayback(); return; }
+    if (nextIdx === currentIndex.value) { replayCurrentSong(); return; }
+    currentIndex.value = nextIdx;
+    play(queue.value[nextIdx]);
   };
 
   const prev = () => {
@@ -627,29 +583,11 @@ export const usePlayerStore = defineStore('player', () => {
     const now = Date.now();
     if (now < skipThrottleUntil) return;
     skipThrottleUntil = now + SKIP_THROTTLE_MS;
-    
-    let prevIndex = currentIndex.value - 1;
-    
-    if (playMode.value === 'shuffle') {
-      if (shuffleHistory.value.length > 0) {
-        prevIndex = shuffleHistory.value.pop()!;
-        if (currentIndex.value >= 0 && !shuffleRemaining.value.includes(currentIndex.value)) {
-          shuffleRemaining.value.push(currentIndex.value);
-        }
-      } else {
-        prevIndex = getNextShuffleIndex();
-      }
-    } else {
-      if (prevIndex < 0) prevIndex = queue.value.length - 1;
-    }
-    
-    if (prevIndex === currentIndex.value) {
-      replayCurrentSong();
-      return;
-    }
-    
-    currentIndex.value = prevIndex;
-    play(queue.value[prevIndex]);
+
+    const prevIdx = resolvePrevIndex();
+    if (prevIdx === currentIndex.value) { replayCurrentSong(); return; }
+    currentIndex.value = prevIdx;
+    play(queue.value[prevIdx]);
   };
 
   const seek = (time: number) => {
@@ -662,8 +600,6 @@ export const usePlayerStore = defineStore('player', () => {
     sound.seek(clampedTime);
     progress.value = clampedTime;
 
-    // Howler 在 audio.duration 为 NaN 时跳过 currentTime 赋值，
-    // 直接操作 audio element 作为回退
     setTimeout(() => {
       if (!sound) return;
       const node = (sound as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
@@ -681,40 +617,6 @@ export const usePlayerStore = defineStore('player', () => {
     Howler.volume(vol);
   };
 
-  const addToQueue = (song: Song) => {
-    queue.value.push(song);
-  };
-
-  const setQueue = (songs: Song[]) => {
-    queue.value = [...songs];
-    currentIndex.value = 0;
-    // 初始化随机播放池
-    if (playMode.value === 'shuffle') {
-      initShufflePool();
-    }
-  };
-  
-  // 监听播放模式变化
-  watch(playMode, (newMode, oldMode) => {
-    if (newMode === 'shuffle') {
-      // 切换到随机模式时，初始化随机播放池
-      shuffleHistory.value = [];
-      initShufflePool();
-    } else if (oldMode === 'shuffle') {
-      // 离开随机模式时，清空历史和剩余池
-      shuffleHistory.value = [];
-      shuffleRemaining.value = [];
-    }
-  });
-  
-  // 监听队列变化
-  watch(queue, () => {
-    if (playMode.value === 'shuffle') {
-      // 队列改变时，重新初始化随机播放池
-      initShufflePool();
-    }
-  });
-  
   const startProgressTimer = () => {
     stopProgressTimer();
     progressInterval = setInterval(() => {
