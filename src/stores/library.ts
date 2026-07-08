@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import type { Song, Album, Artist } from '@/types';
 import { offlineDb, hasLocalLibrary } from '@/offline/db';
 import { querySongs, queryAlbums, queryArtists } from '@/offline/library-query';
@@ -11,6 +11,10 @@ export const useLibraryStore = defineStore('library', () => {
   const totalSongs = ref(0);
   const loading = ref(false);
   const error = ref<string | null>(null);
+
+  // O(1) 查找 Map，响应式自动跟随 artists/albums 变化
+  const artistNameMap = computed(() => new Map(artists.value.map(a => [a.id, a.name])));
+  const albumNameMap = computed(() => new Map(albums.value.map(a => [a.id, a.name])));
 
   const hydrateLocalMetadata = async () => {
     if (!(await hasLocalLibrary())) return;
@@ -57,11 +61,11 @@ export const useLibraryStore = defineStore('library', () => {
   };
 
   const getArtistName = (id: number) => {
-    return artists.value.find(a => a.id === id)?.name;
+    return artistNameMap.value.get(id);
   };
 
   const getAlbumName = (id: number) => {
-    return albums.value.find(a => a.id === id)?.name;
+    return albumNameMap.value.get(id);
   };
 
   return {

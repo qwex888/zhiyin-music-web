@@ -54,13 +54,27 @@ export async function syncFullLibrary(): Promise<LibrarySyncResult> {
     ),
   ]);
 
+  // diff-sync: 先 bulkPut 新数据，再删除远程不存在的旧记录，避免 clear 导致数据丢失
   await offlineDb.transaction('rw', offlineDb.songs, offlineDb.albums, offlineDb.artists, async () => {
-    await offlineDb.songs.clear();
-    await offlineDb.albums.clear();
-    await offlineDb.artists.clear();
     await upsertSongs(songs);
     await upsertAlbums(albums);
     await upsertArtists(artists);
+
+    const remoteSongIds = new Set(songs.map(s => s.id));
+    const remotAlbumIds = new Set(albums.map(a => a.id));
+    const remoteArtistIds = new Set(artists.map(a => a.id));
+
+    const localSongIds = await offlineDb.songs.toCollection().primaryKeys();
+    const localAlbumIds = await offlineDb.albums.toCollection().primaryKeys();
+    const localArtistIds = await offlineDb.artists.toCollection().primaryKeys();
+
+    const orphanSongs = localSongIds.filter(id => !remoteSongIds.has(id as number));
+    const orphanAlbums = localAlbumIds.filter(id => !remotAlbumIds.has(id as number));
+    const orphanArtists = localArtistIds.filter(id => !remoteArtistIds.has(id as number));
+
+    if (orphanSongs.length) await offlineDb.songs.bulkDelete(orphanSongs);
+    if (orphanAlbums.length) await offlineDb.albums.bulkDelete(orphanAlbums);
+    if (orphanArtists.length) await offlineDb.artists.bulkDelete(orphanArtists);
   });
 
   const syncedAt = new Date().toISOString();

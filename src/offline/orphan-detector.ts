@@ -32,10 +32,16 @@ export async function detectOrphans(): Promise<OrphanDetectResult> {
   }
 
   const allIds = Array.from(cachedIds);
+  const BATCH_SIZE = 500;
 
   try {
-    const { data: existingSongs } = await musicApi.getBatchSongs(allIds);
-    const existingIdSet = new Set(existingSongs.map(s => s.id));
+    const existingIdSet = new Set<number>();
+    // 串行分批请求，避免并发过多导致后端拒绝
+    for (let i = 0; i < allIds.length; i += BATCH_SIZE) {
+      const chunk = allIds.slice(i, i + BATCH_SIZE);
+      const { data: songs } = await musicApi.getBatchSongs(chunk);
+      for (const s of songs) existingIdSet.add(s.id);
+    }
 
     for (const id of allIds) {
       if (existingIdSet.has(id)) {
@@ -45,7 +51,6 @@ export async function detectOrphans(): Promise<OrphanDetectResult> {
       }
     }
   } catch {
-    // 请求失败（后端不可达等），视所有缓存为有效以避免误删
     for (const id of allIds) {
       result.valid.add(id);
     }

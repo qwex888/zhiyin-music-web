@@ -14,7 +14,7 @@ import { useTheme } from '@/composables/useTheme';
 import { usePlayerStore } from '@/stores/player';
 import { useLibraryStore } from '@/stores/library';
 import { useOfflineStore } from '@/stores/offline';
-import { setBackendReachable, resetHealthCheck } from '@/offline/network';
+import { setBackendReachable, resetHealthCheck, getHealthCheckGen } from '@/offline/network';
 import { detectOrphans, orphanDetected, orphanIds } from '@/offline/orphan-detector';
 
 const route = useRoute();
@@ -40,8 +40,9 @@ watch(locale, (newLocale) => {
 });
 
 const checkHealth = async () => {
+  const gen = getHealthCheckGen();
   if (!browserOnline.value) {
-    setBackendReachable(false);
+    setBackendReachable(false, gen);
     systemStore.setConnected(false);
     await libraryStore.hydrateLocalMetadata();
     await offlineStore.refreshMeta();
@@ -50,7 +51,7 @@ const checkHealth = async () => {
   try {
     await systemApi.getHealth();
     systemStore.setConnected(true);
-    setBackendReachable(true);
+    setBackendReachable(true, gen);
     if (authStore.isAuthenticated) {
       void offlineStore.syncLibrary();
       detectOrphans().then(({ orphan }) => {
@@ -65,7 +66,7 @@ const checkHealth = async () => {
     }
   } catch {
     systemStore.setConnected(false);
-    setBackendReachable(false);
+    setBackendReachable(false, gen);
     await libraryStore.hydrateLocalMetadata();
     if (authStore.isAuthenticated) {
       toast.error(t('settings.backend_connect_failed'));
