@@ -1,25 +1,19 @@
 # Release notes
 
 ## 🆕 Features
-* feat(offline): Enhance health check management and integrate into querying logic @huangdongliang
-* feat: Enhance release note generation and localization support @huangdongliang
+* feat(virtual-list): 添加虚拟滚动支持 @qwex888
+* feat(issue-template): 更新 Bug 报告和功能建议模板 @qwex888
+* feat(player): 添加音频下载取消功能 @qwex888
 
-## 🐛 Bug Fixes
-* fix(auth): Improve initialization handling in useAuthStore @huangdongliang
-* fix(ci): 修复 Release 重复创建，CI 幂等上传 dist.tar.gz @huangdongliang
-
-## ♻️ Refactor
-* refactor: Remove HardDriveDownload component from player UI and enhance offline song querying @huangdongliang
+## 🔨 Chore
+* chore(.gitignore): 更改忽略列表 @qwex888
 
 # 更新日志
 
 ## 🆕 新特性
-* feat(offline): Enhance health check management and integrate into querying logic @huangdongliang
-* feat: Enhance release note generation and localization support @huangdongliang
+* feat(virtual-list): 添加虚拟滚动支持 @qwex888
+* feat(issue-template): 更新 Bug 报告和功能建议模板 @qwex888
+* feat(player): 添加音频下载取消功能 @qwex888
 
-## 🐛 Bug Fixes
-* fix(auth): Improve initialization handling in useAuthStore @huangdongliang
-* fix(ci): 修复 Release 重复创建，CI 幂等上传 dist.tar.gz @huangdongliang
-
-## ♻️ 重构
-* refactor: Remove HardDriveDownload component from player UI and enhance offline song querying @huangdongliang
+## 🔨 杂项
+* chore(.gitignore): 更改忽略列表 @qwex888

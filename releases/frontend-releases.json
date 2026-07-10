@@ -1,5 +1,29 @@
 [
   {
+    "version": "v0.6.3",
+    "published_at": "2026-07-10T02:51:11Z",
+    "summary": "3 项新功能",
+    "changes": {
+      "feature": [
+        "feat(virtual-list): 添加虚拟滚动支持",
+        "feat(issue-template): 更新 Bug 报告和功能建议模板",
+        "feat(player): 添加音频下载取消功能"
+      ],
+      "fix": [],
+      "perf": [],
+      "refactor": [],
+      "docs": [],
+      "i18n": [],
+      "build": [],
+      "ci": [],
+      "style": [],
+      "test": [],
+      "chore": [
+        "chore(.gitignore): 更改忽略列表"
+      ]
+    }
+  },
+  {
     "version": "v0.6.2",
     "published_at": "2026-07-07T03:38:04Z",
     "summary": "2 项新功能、2 项修复",
