@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, toRefs, onMounted, watch, nextTick, computed, type Component } from 'vue';
-import { useVirtualList, useInfiniteScroll, onClickOutside } from '@vueuse/core';
+import { ref, toRefs, onMounted, watch, computed, nextTick, type Component, type ComponentPublicInstance } from 'vue';
+import { useVirtualizer } from '@tanstack/vue-virtual';
+import { onClickOutside } from '@vueuse/core';
 import type { Song, RecentSong } from '@/types';
 import { Play, Pause, Clock, MoreHorizontal, Loader2, AlertCircle, RefreshCw, Inbox, ListPlus, Search, Info, Cloud, Mic2 } from 'lucide-vue-next';
 import { isStrmSong } from '@/types';
@@ -73,6 +74,7 @@ const effectiveMenuActions = computed(() => {
   return actions.filter(a => !blocked.has(a.key));
 });
 
+// --- 缓存状态 ---
 const cachedIds = ref<Set<number>>(new Set());
 
 const refreshCachedIds = async () => {
@@ -80,14 +82,58 @@ const refreshCachedIds = async () => {
 };
 
 onMounted(refreshCachedIds);
-watch(songs, () => {
-  nextTick(() => {
-    const el = containerRef.value as HTMLElement | undefined;
-    if (el) el.scrollTop = 0;
-  });
-  refreshCachedIds();
+
+// --- 虚拟滚动 ---
+const scrollContainerRef = ref<HTMLElement | null>(null);
+let prevFirstId: number | undefined;
+
+const rowVirtualizer = useVirtualizer(computed(() => ({
+  count: songs.value.length,
+  getScrollElement: () => scrollContainerRef.value,
+  estimateSize: () => props.itemHeight,
+  overscan: 8,
+})));
+
+const virtualItems = computed(() => rowVirtualizer.value.getVirtualItems());
+const totalSize = computed(() => rowVirtualizer.value.getTotalSize());
+
+const rowGridStyle = computed(() => {
+  const cols = ['40px', 'minmax(140px, 4fr)'];
+  if (props.showArtist) cols.push('minmax(100px, 2fr)');
+  if (props.showAlbum) cols.push('minmax(100px, 2fr)');
+  if (props.showPlayedAt) cols.push('minmax(88px, 1.5fr)');
+  cols.push('64px', '40px');
+  return { gridTemplateColumns: cols.join(' ') };
 });
 
+const measureRow = (el: Element | ComponentPublicInstance | null) => {
+  if (el && el instanceof HTMLElement) {
+    rowVirtualizer.value.measureElement(el);
+  }
+};
+
+// 当 songs 整体替换时重置滚动，追加时不重置
+watch(songs, (newSongs, oldSongs) => {
+  refreshCachedIds();
+  const newFirstId = newSongs[0]?.id;
+  const isFullReplace = newFirstId !== prevFirstId && oldSongs?.length > 0;
+  prevFirstId = newFirstId;
+  if (isFullReplace) {
+    rowVirtualizer.value.scrollToOffset(0);
+  }
+  nextTick(() => rowVirtualizer.value.measure());
+});
+
+// Infinite scroll: 最后一个虚拟项可见时触发加载
+watch(virtualItems, (items) => {
+  if (!props.hasMore || props.isLoading || items.length === 0) return;
+  const lastItem = items[items.length - 1];
+  if (lastItem && lastItem.index >= songs.value.length - 5) {
+    emit('loadMore');
+  }
+});
+
+// --- 菜单 ---
 const activeMenuSongId = ref<number | null>(null);
 const menuRef = ref<HTMLElement | null>(null);
 
@@ -119,22 +165,7 @@ const handleMenuAction = (action: string, song: Song | RecentSong) => {
   emit('menuAction', action, song as Song);
 };
 
-const resolvedMenuActions = () => effectiveMenuActions.value;
-
-const { list, containerProps, wrapperProps } = useVirtualList(songs, {
-  itemHeight: props.itemHeight,
-  overscan: 5,
-});
-
-const containerRef = containerProps.ref;
-
-// Infinite scroll
-useInfiniteScroll(containerRef, () => {
-  if (props.hasMore && !props.isLoading) {
-    emit('loadMore');
-  }
-}, { distance: 50 });
-
+// --- 工具函数 ---
 const formatDuration = (seconds: number | null | undefined) => {
   if (seconds == null) return '--:--';
   const mins = Math.floor(seconds / 60);
@@ -171,21 +202,17 @@ const handlePlay = (song: Song | RecentSong) => {
 <template>
   <div class="flex flex-col h-full bg-bg-surface/50 border border-border rounded-xl overflow-hidden backdrop-blur-sm">
     <!-- Table Header -->
-    <div class="grid p-4 text-sm font-medium text-text-secondary border-b border-border bg-bg-surface/80 z-10"
-         :class="[
-           showPlayedAt 
-             ? 'gap-4 grid-cols-[40px_minmax(200px,5fr)_minmax(120px,2fr)_minmax(120px,2fr)_minmax(100px,1.5fr)_64px_40px]' 
-             : 'gap-3 grid-cols-[32px_1fr_52px_32px] md:gap-4 md:grid-cols-[40px_minmax(200px,5fr)_minmax(150px,3fr)_64px_40px] lg:grid-cols-[40px_minmax(220px,5fr)_minmax(150px,3fr)_minmax(150px,2fr)_64px_40px]'
-         ]"
+    <div
+      class="grid gap-3 md:gap-4 p-4 text-sm font-medium text-text-secondary border-b border-border bg-bg-surface/80 z-10"
+      :style="rowGridStyle"
     >
-      <div v-if="showIndex" class="text-center">#</div>
-      <div class="md:hidden flex-1 min-w-0">{{ t('songs.table.title') }}</div>
-      <div class="hidden md:block min-w-0">{{ t('songs.table.title') }}</div>
-      <div v-if="showArtist" class="hidden md:block min-w-0">{{ t('songs.table.artist') }}</div>
-      <div v-if="showAlbum" class="hidden lg:block min-w-0">{{ t('songs.table.album') }}</div>
-      <div v-if="showPlayedAt" class="hidden lg:block min-w-0">{{ t('home.recent') }}</div>
-      <div class="text-right"><Clock class="w-4 h-4 ml-auto" /></div>
-      <div></div>
+      <div v-if="showIndex" class="text-center self-center">#</div>
+      <div class="min-w-0 break-words">{{ t('songs.table.title') }}</div>
+      <div v-if="showArtist" class="min-w-0 break-words">{{ t('songs.table.artist') }}</div>
+      <div v-if="showAlbum" class="min-w-0 break-words">{{ t('songs.table.album') }}</div>
+      <div v-if="showPlayedAt" class="min-w-0 break-words">{{ t('home.recent') }}</div>
+      <div class="text-right self-center"><Clock class="w-4 h-4 ml-auto" /></div>
+      <div class="self-center"></div>
     </div>
 
     <!-- Error State -->
@@ -208,137 +235,142 @@ const handlePlay = (song: Song | RecentSong) => {
     </div>
 
     <!-- Virtual List Container -->
-    <div v-else class="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-800 scrollbar-track-transparent" v-bind="containerProps">
-      <div class="divide-y divide-border" v-bind="wrapperProps">
-        <div 
-          v-for="{ data: song, index } in list" 
-          :key="song.id"
-          class="group grid p-3 items-center hover:bg-bg-elevate transition-colors cursor-default box-border"
-          :class="[
-             { 'bg-primary/5': isCurrentSong(song) },
-             showPlayedAt 
-               ? 'gap-4 grid-cols-[40px_minmax(200px,5fr)_minmax(120px,2fr)_minmax(120px,2fr)_minmax(100px,1.5fr)_64px_40px]' 
-               : 'gap-3 grid-cols-[32px_1fr_52px_32px] md:gap-4 md:grid-cols-[40px_minmax(200px,5fr)_minmax(150px,3fr)_64px_40px] lg:grid-cols-[40px_minmax(220px,5fr)_minmax(150px,3fr)_minmax(150px,2fr)_64px_40px]'
-          ]"
-          :style="{ height: `${itemHeight}px` }"
-          @dblclick="handlePlay(song)"
+    <div
+      v-else
+      ref="scrollContainerRef"
+      class="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-800 scrollbar-track-transparent"
+    >
+      <div class="w-full relative" :style="{ height: `${totalSize}px` }">
+        <div
+          class="absolute top-0 left-0 w-full"
+          :style="{ transform: `translateY(${virtualItems[0]?.start ?? 0}px)` }"
         >
-          <!-- Play Button / Index -->
-          <div v-if="showIndex" class="text-center flex justify-center">
-            <button 
-              v-if="isCurrentSong(song) && playerStore.isPlaying"
-              @click.stop="playerStore.pause()"
-              class="text-primary"
-              :title="t('player.paused')"
-            >
-               <Pause class="w-4 h-4 fill-current" />
-            </button>
-            <button 
-              v-else
-              class="hidden group-hover:block text-text-primary"
-              @click.stop="handlePlay(song)"
-              :title="t('player.playing')"
-            >
-              <Play class="w-4 h-4 fill-current" />
-            </button>
-            <span v-if="!isCurrentSong(song)" class="group-hover:hidden text-text-secondary text-sm font-mono">
-              {{ index + 1 }}
-            </span>
-            <span v-else-if="!playerStore.isPlaying" class="group-hover:hidden text-primary">
-              <div class="w-3 h-3 bg-primary rounded-full animate-pulse"></div>
-            </span>
-          </div>
-
-          <!-- Title (支持两行显示) -->
-          <div class="flex items-center gap-2 md:gap-3 min-w-0 overflow-hidden">
-            <div class="w-9 h-9 md:w-10 md:h-10 from-zinc-800/50 to-zinc-900/50 rounded overflow-hidden flex-shrink-0 shadow-sm relative">
-               <CoverImage
-                 :cover-id="song.cover_id"
-                 size="thumb"
-                 lazy
-               />
-            </div>
-            <div class="min-w-0 flex-1">
-              <div class="text-sm md:text-base font-medium leading-tight line-clamp-2" :class="isCurrentSong(song) ? 'text-primary' : 'text-text-primary'">
-                {{ song.title }}
-              </div>
-              <div class="md:hidden flex items-center gap-1 mt-0.5 min-w-0">
-                <Cloud
-                  v-if="isStrmSong(song)"
-                  class="w-3 h-3 flex-shrink-0 text-sky-400"
-                />
-                <span class="text-xs text-text-secondary truncate">{{ getArtistName(song) }}</span>
-              </div>
-              <div class="hidden md:flex items-center gap-1 mt-0.5 min-w-0">
-                <Cloud
-                  v-if="isStrmSong(song)"
-                  class="w-3 h-3 flex-shrink-0 text-sky-400"
-                  :title="t('player.strm_badge')"
-                />
-              </div>
-            </div>
-          </div>
-
-          <!-- Artist (第二优先级) -->
           <div
-            v-if="showArtist"
-            class="hidden md:block text-text-secondary text-sm truncate transition-colors min-w-0"
-            :class="enableNavigation ? 'hover:text-text-primary cursor-pointer hover:underline' : ''"
-            @click.stop="enableNavigation && emit('navigateArtist', song.artist_id)"
+            v-for="virtualRow in virtualItems"
+            :key="songs[virtualRow.index]?.id ?? virtualRow.index"
+            :ref="measureRow"
+            :data-index="virtualRow.index"
+            class="group grid gap-3 md:gap-4 p-3 items-start hover:bg-bg-elevate transition-colors cursor-default box-border border-b border-border"
+            :style="rowGridStyle"
+            :class="{ 'bg-primary/5': isCurrentSong(songs[virtualRow.index]) }"
+            @dblclick="handlePlay(songs[virtualRow.index])"
           >
-            {{ getArtistName(song) }}
-          </div>
+            <!-- Play Button / Index -->
+            <div v-if="showIndex" class="text-center flex justify-center self-center pt-0.5">
+              <button 
+                v-if="isCurrentSong(songs[virtualRow.index]) && playerStore.isPlaying"
+                @click.stop="playerStore.pause()"
+                class="text-primary"
+                :title="t('player.paused')"
+              >
+                 <Pause class="w-4 h-4 fill-current" />
+              </button>
+              <button 
+                v-else
+                class="hidden group-hover:block text-text-primary"
+                @click.stop="handlePlay(songs[virtualRow.index])"
+                :title="t('player.playing')"
+              >
+                <Play class="w-4 h-4 fill-current" />
+              </button>
+              <span v-if="!isCurrentSong(songs[virtualRow.index])" class="group-hover:hidden text-text-secondary text-sm font-mono">
+                {{ virtualRow.index + 1 }}
+              </span>
+              <span v-else-if="!playerStore.isPlaying" class="group-hover:hidden text-primary">
+                <div class="w-3 h-3 bg-primary rounded-full animate-pulse"></div>
+              </span>
+            </div>
 
-          <!-- Album (可在空间不足时隐藏) -->
-          <div
-            v-if="showAlbum"
-            class="hidden lg:block text-text-secondary text-sm truncate transition-colors min-w-0"
-            :class="enableNavigation ? 'hover:text-text-primary cursor-pointer hover:underline' : ''"
-            @click.stop="enableNavigation && emit('navigateAlbum', song.album_id)"
-          >
-            {{ getAlbumName(song) }}
-          </div>
+            <!-- Title -->
+            <div class="flex items-start gap-2 md:gap-3 min-w-0">
+              <div class="w-9 h-9 md:w-10 md:h-10 from-zinc-800/50 to-zinc-900/50 rounded overflow-hidden flex-shrink-0 shadow-sm relative">
+                 <CoverImage
+                   :cover-id="songs[virtualRow.index].cover_id"
+                   size="thumb"
+                   lazy
+                 />
+              </div>
+              <div class="min-w-0 flex-1">
+                <div
+                  class="text-sm md:text-base font-medium leading-snug break-words whitespace-normal"
+                  :class="isCurrentSong(songs[virtualRow.index]) ? 'text-primary' : 'text-text-primary'"
+                >
+                  {{ songs[virtualRow.index].title }}
+                </div>
+                <div v-if="isStrmSong(songs[virtualRow.index])" class="flex items-center gap-1 mt-1">
+                  <Cloud
+                    class="w-3 h-3 flex-shrink-0 text-sky-400"
+                    :title="t('player.strm_badge')"
+                  />
+                  <span class="text-xs text-sky-400">{{ t('player.strm_badge') }}</span>
+                </div>
+              </div>
+            </div>
 
-          <!-- Played At -->
-          <div v-if="showPlayedAt" class="hidden lg:block text-text-tertiary text-sm truncate min-w-0">
-            {{ formatTimeAgo((song as RecentSong).played_at) }}
-          </div>
+            <!-- Artist -->
+            <div
+              v-if="showArtist"
+              class="text-text-secondary text-sm leading-snug break-words whitespace-normal transition-colors min-w-0"
+              :class="enableNavigation ? 'hover:text-text-primary cursor-pointer hover:underline' : ''"
+              @click.stop="enableNavigation && emit('navigateArtist', songs[virtualRow.index].artist_id)"
+            >
+              {{ getArtistName(songs[virtualRow.index]) }}
+            </div>
 
-          <!-- Duration (固定宽度，不换行) -->
-          <div class="text-xs md:text-sm text-text-secondary font-mono text-right tabular-nums">
-            {{ formatDuration(song.duration_secs) }}
-          </div>
+            <!-- Album -->
+            <div
+              v-if="showAlbum"
+              class="text-text-secondary text-sm leading-snug break-words whitespace-normal transition-colors min-w-0"
+              :class="enableNavigation ? 'hover:text-text-primary cursor-pointer hover:underline' : ''"
+              @click.stop="enableNavigation && emit('navigateAlbum', songs[virtualRow.index].album_id)"
+            >
+              {{ getAlbumName(songs[virtualRow.index]) }}
+            </div>
 
-          <!-- Actions (固定宽度) -->
-          <div class="relative flex justify-center md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-             <button 
-               class="p-1 text-text-secondary hover:text-text-primary active:text-text-primary rounded-full hover:bg-bg-surface active:bg-bg-surface transition-colors"
-               @click.stop="toggleMenu(song.id, $event)"
-               :title="t('common.more_actions')"
-             >
-               <MoreHorizontal class="w-4 h-4" />
-             </button>
-             <Teleport to="body">
-               <transition name="menu-fade">
-                 <div
-                   v-if="activeMenuSongId === song.id"
-                   ref="menuRef"
-                   class="fixed z-[200] min-w-[160px] py-1 bg-bg-surface border border-border rounded-xl shadow-xl"
-                   :style="{ top: menuPosition.top, left: menuPosition.left }"
-                   @click.stop
-                 >
-                   <button
-                     v-for="action in resolvedMenuActions()"
-                     :key="action.key"
-                     class="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevate transition-colors"
-                     @click="handleMenuAction(action.key, song)"
+            <!-- Played At -->
+            <div
+              v-if="showPlayedAt"
+              class="text-text-tertiary text-sm leading-snug break-words whitespace-normal min-w-0"
+            >
+              {{ formatTimeAgo((songs[virtualRow.index] as RecentSong).played_at) }}
+            </div>
+
+            <!-- Duration -->
+            <div class="text-xs md:text-sm text-text-secondary font-mono text-right tabular-nums self-center whitespace-nowrap">
+              {{ formatDuration(songs[virtualRow.index].duration_secs) }}
+            </div>
+
+            <!-- Actions -->
+            <div class="relative flex justify-center self-center md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+               <button 
+                 class="p-1 text-text-secondary hover:text-text-primary active:text-text-primary rounded-full hover:bg-bg-surface active:bg-bg-surface transition-colors"
+                 @click.stop="toggleMenu(songs[virtualRow.index].id, $event)"
+                 :title="t('common.more_actions')"
+               >
+                 <MoreHorizontal class="w-4 h-4" />
+               </button>
+               <Teleport to="body">
+                 <transition name="menu-fade">
+                   <div
+                     v-if="activeMenuSongId === songs[virtualRow.index].id"
+                     ref="menuRef"
+                     class="fixed z-[200] min-w-[160px] py-1 bg-bg-surface border border-border rounded-xl shadow-xl"
+                     :style="{ top: menuPosition.top, left: menuPosition.left }"
+                     @click.stop
                    >
-                     <component :is="action.icon" class="w-4 h-4 flex-shrink-0" />
-                     <span>{{ t(action.labelKey) }}</span>
-                   </button>
-                 </div>
-               </transition>
-             </Teleport>
+                     <button
+                       v-for="action in effectiveMenuActions"
+                       :key="action.key"
+                       class="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevate transition-colors"
+                       @click="handleMenuAction(action.key, songs[virtualRow.index])"
+                     >
+                       <component :is="action.icon" class="w-4 h-4 flex-shrink-0" />
+                       <span>{{ t(action.labelKey) }}</span>
+                     </button>
+                   </div>
+                 </transition>
+               </Teleport>
+            </div>
           </div>
         </div>
       </div>
