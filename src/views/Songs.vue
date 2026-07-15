@@ -19,13 +19,11 @@ const { t } = useI18n();
 const router = useRouter();
 const toast = useToast();
 const songs = ref<Song[]>([]);
-const limit = ref(50);
-const offset = ref(0);
 const isLoading = ref(false);
-const hasMore = ref(true);
 const hasError = ref(false);
 const searchQuery = ref('');
 let fetchId = 0;
+const PAGE_SIZE = 200;
 
 // 排序状态
 const sortBy = ref('created_at');
@@ -96,10 +94,18 @@ const setFilterAlbum = (albumId: number | undefined) => {
   resetAndFetch();
 };
 
-const buildParams = (extraOffset?: number) => {
-  const params: { limit: number; offset: number; q?: string; sort_by?: string; sort_order?: string; artist_id?: number; album_id?: number } = {
-    limit: limit.value,
-    offset: extraOffset ?? offset.value,
+const buildParams = (pageOffset: number) => {
+  const params: {
+    limit: number;
+    offset: number;
+    q?: string;
+    sort_by?: string;
+    sort_order?: string;
+    artist_id?: number;
+    album_id?: number;
+  } = {
+    limit: PAGE_SIZE,
+    offset: pageOffset,
   };
   if (searchQuery.value.trim()) params.q = searchQuery.value.trim();
   if (sortBy.value !== 'created_at' || sortOrder.value !== 'desc') {
@@ -111,50 +117,34 @@ const buildParams = (extraOffset?: number) => {
   return params;
 };
 
+/** 一次性拉取全部歌曲（分页循环，方式同 Scrape.fetchAllLibrarySongs） */
 const fetchSongs = async () => {
   const currentId = ++fetchId;
   isLoading.value = true;
   hasError.value = false;
+  const allSongs: Song[] = [];
+  let pageOffset = 0;
   try {
-    const data = await querySongs(buildParams());
-    if (currentId !== fetchId) return;
-    songs.value = data.items;
-    hasMore.value = data.has_next;
+    while (true) {
+      const data = await querySongs(buildParams(pageOffset));
+      if (currentId !== fetchId) return;
+      allSongs.push(...data.items);
+      if (!data.has_next) break;
+      pageOffset += data.items.length;
+    }
+    songs.value = allSongs;
   } catch (e) {
     if (currentId !== fetchId) return;
     console.error(t('common.error'), e);
     hasError.value = true;
-    hasMore.value = false;
-  } finally {
-    if (currentId === fetchId) isLoading.value = false;
-  }
-};
-
-const loadMore = async () => {
-  if (!hasMore.value || isLoading.value || hasError.value) return;
-  const currentId = ++fetchId;
-  isLoading.value = true;
-  try {
-    const nextOffset = offset.value + limit.value;
-    const data = await querySongs(buildParams(nextOffset));
-    if (currentId !== fetchId) return;
-    songs.value = [...songs.value, ...data.items];
-    offset.value = nextOffset;
-    hasMore.value = data.has_next;
-  } catch (e) {
-    if (currentId !== fetchId) return;
-    console.error(t('common.error'), e);
-    hasError.value = true;
-    hasMore.value = false;
+    songs.value = allSongs;
   } finally {
     if (currentId === fetchId) isLoading.value = false;
   }
 };
 
 const resetAndFetch = () => {
-  offset.value = 0;
   songs.value = [];
-  hasMore.value = true;
   hasError.value = false;
   fetchSongs();
 };
@@ -173,13 +163,7 @@ const clearSearch = () => {
 
 const retrySongs = () => {
   hasError.value = false;
-  hasMore.value = true;
-  if (songs.value.length === 0) {
-    offset.value = 0;
-    fetchSongs();
-  } else {
-    loadMore();
-  }
+  fetchSongs();
 };
 
 const playSong = (song: Song) => {
@@ -357,10 +341,9 @@ onMounted(() => {
       <VirtualSongList 
         :songs="songs"
         :is-loading="isLoading"
-        :has-more="hasMore"
+        :has-more="false"
         :has-error="hasError"
         :enable-navigation="true"
-        @loadMore="loadMore"
         @play="playSong"
         @retry="retrySongs"
         @menu-action="handleMenuAction"
