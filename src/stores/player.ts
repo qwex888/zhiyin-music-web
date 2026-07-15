@@ -25,11 +25,17 @@ import {
 } from '@/composables/useMediaSession';
 
 const swCacheNotifier = new Map<string, () => void>();
+/** SW/audio-cached 额外回调：缓存完成后热切 blob（由 store 挂载） */
+let audioCachedHandler: ((songId: number, quality: StreamQuality) => void) | null = null;
+
 if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (event.data?.type === 'audio-cached') {
-      const k = `${event.data.songId}:${event.data.quality}`;
+      const songId = Number(event.data.songId);
+      const q = (event.data.quality || 'original') as StreamQuality;
+      const k = `${songId}:${q}`;
       swCacheNotifier.get(k)?.();
+      audioCachedHandler?.(songId, q);
     }
   });
 }
@@ -70,6 +76,9 @@ export const usePlayerStore = defineStore('player', () => {
   let wasUnexpectedlyPaused = false;
   let listenersAttachedForGen = -1;
   let playLock = false;
+  let hotSwapInProgress = false;
+  // 在 initSound 之后赋值，供 bgCache / SW 消息调用
+  let tryHotSwapToBlob: (songId: number, q: StreamQuality) => Promise<void> = async () => {};
 
   const consumePauseIntent = (): PauseSource | null => {
     const source = pendingPauseSource;
@@ -85,6 +94,7 @@ export const usePlayerStore = defineStore('player', () => {
       activeObjectUrl = null;
     }
   };
+
   async function bgCache(songId: number, quality: StreamQuality): Promise<void> {
     const key = `${songId}:${quality}`;
     if (cachingInProgress.has(key)) return;
@@ -112,13 +122,20 @@ export const usePlayerStore = defineStore('player', () => {
           }),
         ]);
 
+        // SW 路径由 audioCachedHandler 触发热切；此处仅处理 fallback 写入成功
         if (cachedBySw) return;
-        if (await hasCachedAudio(songId, quality)) return;
+        if (await hasCachedAudio(songId, quality)) {
+          void tryHotSwapToBlob(songId, quality);
+          return;
+        }
 
         if (currentSong.value?.id !== songId) return;
         const { data } = await musicApi.getStreamToken(songId, quality);
         const url = musicApi.buildStreamUrl(songId, quality, data.stream_token);
         await cacheAudioFromStreamUrl(url, songId, quality, ac.signal);
+        if (!ac.signal.aborted && await hasCachedAudio(songId, quality)) {
+          void tryHotSwapToBlob(songId, quality);
+        }
       } finally {
         swCacheNotifier.delete(key);
         unwatch();
@@ -424,6 +441,87 @@ export const usePlayerStore = defineStore('player', () => {
     });
 
     return gen;
+  };
+
+  const waitForHowlLoad = (h: Howl, gen: number): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (h.state() === 'loaded') {
+        resolve(gen === soundGeneration);
+        return;
+      }
+      const onLoad = () => {
+        h.off('loaderror', onErr);
+        resolve(gen === soundGeneration);
+      };
+      const onErr = () => {
+        h.off('load', onLoad);
+        resolve(false);
+      };
+      h.once('load', onLoad);
+      h.once('loaderror', onErr);
+    });
+  };
+
+  /**
+   * 流式播放期间 Cache 写完后，将 Howl 热切到 blob，使 seekable 覆盖全曲。
+   * 已是 blob / 已切歌 / 重入 时直接跳过。
+   */
+  tryHotSwapToBlob = async (songId: number, q: StreamQuality): Promise<void> => {
+    if (hotSwapInProgress || !sound || activeObjectUrl) return;
+    const song = currentSong.value;
+    if (!song || song.id !== songId) return;
+
+    const expectedQ = (isStrmSong(song) ? 'original' : quality.value) as StreamQuality;
+    if (q !== expectedQ) return;
+    if (!(await hasCachedAudio(songId, q))) return;
+
+    if (hotSwapInProgress || !sound || activeObjectUrl) return;
+    if (currentSong.value?.id !== songId) return;
+
+    hotSwapInProgress = true;
+    try {
+      let resumeAt = progress.value;
+      try {
+        const s = sound.seek();
+        if (typeof s === 'number' && isFinite(s) && s >= 0) resumeAt = s;
+      } catch { /* keep progress.value */ }
+      const wasPlaying = isPlaying.value;
+
+      pendingPauseSource = 'system';
+      const gen = await initSound(song, false);
+      if (gen !== soundGeneration || !sound || currentSong.value?.id !== songId) return;
+      if (!activeObjectUrl) return;
+
+      const loaded = await waitForHowlLoad(sound, gen);
+      if (!loaded || gen !== soundGeneration || !sound) return;
+
+      const maxDur = duration.value > 0 ? duration.value : resumeAt;
+      const clamped = Math.max(0, Math.min(resumeAt, maxDur));
+      if (clamped > 0) {
+        pendingPauseSource = 'system';
+        sound.seek(clamped);
+        progress.value = clamped;
+      }
+
+      if (wasPlaying) {
+        try {
+          sound.play();
+        } catch {
+          isPlaying.value = false;
+          isBuffering.value = false;
+        }
+      } else {
+        isPlaying.value = false;
+        isBuffering.value = false;
+        setMediaSessionPlaybackState(false);
+      }
+    } finally {
+      hotSwapInProgress = false;
+    }
+  };
+
+  audioCachedHandler = (songId, q) => {
+    void tryHotSwapToBlob(songId, q);
   };
 
   const play = async (song?: Song) => {

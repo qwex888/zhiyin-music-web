@@ -28,6 +28,12 @@ dist-ssr
 dist
 coverage
 
+# Playwright / Vitest reports
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
 # Environment variables
 .env
 .env.*

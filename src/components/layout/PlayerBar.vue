@@ -147,7 +147,7 @@ const toggleQuality = () => {
        </div>
        <div v-if="playerStore.currentSong" class="overflow-hidden flex-1">
          <div class="flex items-center gap-2 min-w-0">
-           <span class="text-sm font-medium text-text-primary truncate">{{ playerStore.currentSong.title }}</span>
+           <span data-testid="player-current-title" class="text-sm font-medium text-text-primary truncate">{{ playerStore.currentSong.title }}</span>
            <Cloud
              v-if="isStrmSong(playerStore.currentSong)"
              class="w-4 h-4 flex-shrink-0 text-sky-400"
@@ -161,17 +161,20 @@ const toggleQuality = () => {
     <!-- 播放控制 -->
     <div class="flex items-center gap-3 md:gap-6 md:w-1/3 md:justify-center">
       <!-- 上一首 (桌面端) -->
-      <button @click="playerStore.prev" class="hidden md:block text-text-primary hover:text-primary transition-colors" :title="t('player.prev')">
+      <button @click="playerStore.prev" data-testid="player-prev" class="hidden md:block text-text-primary hover:text-primary transition-colors" :title="t('player.prev')">
         <SkipBack class="w-5 h-5" />
       </button>
 
       <!-- 播放/暂停 -->
       <button 
+        data-testid="player-toggle"
         @click="playerStore.togglePlay" 
         class="w-9 h-9 md:w-10 md:h-10 rounded-full bg-primary-gradient hover:scale-105 text-white flex items-center justify-center transition-all shadow-lg shadow-primary/20 flex-shrink-0"
         :class="{ 'opacity-75 cursor-not-allowed hover:!scale-100': playerStore.isBuffering }"
         :disabled="playerStore.isBuffering"
         :title="playerStore.isBuffering ? t('player.buffering') : (playerStore.isPlaying ? t('player.paused') : t('player.playing'))"
+        :data-playing="playerStore.isPlaying ? 'true' : 'false'"
+        :data-buffering="playerStore.isBuffering ? 'true' : 'false'"
       >
         <Loader2 v-if="playerStore.isBuffering" class="w-4 h-4 md:w-5 md:h-5 animate-spin" />
         <Pause v-else-if="playerStore.isPlaying" class="w-4 h-4 md:w-5 md:h-5 fill-current" />
@@ -179,7 +182,7 @@ const toggleQuality = () => {
       </button>
 
       <!-- 下一首 -->
-      <button @click="playerStore.next" class="text-text-primary hover:text-primary transition-colors" :title="t('player.next')">
+      <button @click="playerStore.next" data-testid="player-next" class="text-text-primary hover:text-primary transition-colors" :title="t('player.next')">
         <SkipForward class="w-5 h-5" />
       </button>
 
@@ -211,6 +214,7 @@ const toggleQuality = () => {
            type="range" 
            min="0" 
            max="100" 
+           data-testid="player-seek"
            :value="progressPercent"
            @input="handleSeek"
            class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"

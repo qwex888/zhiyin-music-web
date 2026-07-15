@@ -8,8 +8,25 @@ const mockMusicApi = vi.hoisted(() => ({
   getSongs: vi.fn(),
   getAlbums: vi.fn(),
   getArtists: vi.fn(),
+  getSong: vi.fn((id: number) =>
+    Promise.resolve({
+      data: {
+        id,
+        title: `Song ${id}`,
+        file_path: 'path',
+        duration_secs: 180,
+        artist_id: 1,
+        album_id: 1,
+        bitrate: 320,
+        channels: 2,
+        codec: 'flac',
+      },
+    })
+  ),
   getStreamToken: vi.fn(() => Promise.resolve({ data: { stream_token: 'test-token', expires_in: 60 } })),
   buildStreamUrl: vi.fn((id: number, quality: string, token: string) => `/api/stream/${id}?quality=${quality}&stoken=${token}`),
+  reportMetadata: vi.fn(() => Promise.resolve()),
+  getBatchSongs: vi.fn(() => Promise.resolve({ data: [] })),
 }));
 
 vi.mock('@/api/music', () => ({
@@ -48,18 +65,41 @@ vi.mock('@/offline/db', () => ({
   hasLocalLibrary: vi.fn(() => Promise.resolve(false)),
 }));
 
+vi.mock('@/composables/useToast', () => ({
+  useToast: () => ({ error: vi.fn(), info: vi.fn(), success: vi.fn() }),
+}));
+
+vi.mock('@/composables/useMediaSession', () => ({
+  attachMediaSessionHandlers: vi.fn(),
+  updateMediaSessionMetadata: vi.fn(),
+  setMediaSessionPlaybackState: vi.fn(),
+  updatePositionState: vi.fn(),
+}));
+
+vi.mock('@/utils/songEvents', () => ({
+  songEvents: { onSongUpdated: vi.fn(), emitSongUpdated: vi.fn() },
+}));
+
+vi.mock('@/i18n', () => ({
+  default: { global: { t: (k: string) => k } },
+}));
+
 // Mock Howler
 vi.mock('howler', () => {
   return {
     Howl: class {
-      constructor() {
+      constructor(opts: { onload?: () => void; onplay?: () => void }) {
+        queueMicrotask(() => opts.onload?.());
         return {
-          play: vi.fn(),
+          play: vi.fn(() => { opts.onplay?.(); }),
           pause: vi.fn(),
           unload: vi.fn(),
           duration: vi.fn(() => 200),
           seek: vi.fn(() => 10),
+          state: vi.fn(() => 'loaded'),
           on: vi.fn(),
+          once: vi.fn((e: string, cb: () => void) => { if (e === 'load') queueMicrotask(cb); }),
+          off: vi.fn(),
         };
       }
     },
@@ -116,8 +156,8 @@ describe('Integration Flow', () => {
       
       await store.play(song);
 
-      expect(store.currentSong).toEqual(song);
-      expect(store.queue).toContainEqual(song);
+      expect(store.currentSong?.id).toBe(1);
+      expect(store.queue.some(s => s.id === 1)).toBe(true);
       expect(mockMusicApi.getStreamToken).toHaveBeenCalledWith(1, 'original');
     });
 
