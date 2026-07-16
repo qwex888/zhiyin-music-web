@@ -110,9 +110,11 @@ router.beforeEach(async (to) => {
   if (authStore.initialized === null) {
     const isInit = await authStore.checkInitStatus();
     if (!isInit) {
+      authStore.logout();
       return { name: 'Login' };
     }
   } else if (!authStore.initialized) {
+    authStore.logout();
     return { name: 'Login' };
   }
 
