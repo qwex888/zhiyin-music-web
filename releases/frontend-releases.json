@@ -1,5 +1,25 @@
 [
   {
+    "version": "v0.6.6",
+    "published_at": "2026-07-16T03:25:13Z",
+    "summary": "1 项修复",
+    "changes": {
+      "feature": [],
+      "fix": [
+        "fix(router): 修复未初始化状态下的重定向逻辑"
+      ],
+      "perf": [],
+      "refactor": [],
+      "docs": [],
+      "i18n": [],
+      "build": [],
+      "ci": [],
+      "style": [],
+      "test": [],
+      "chore": []
+    }
+  },
+  {
     "version": "v0.6.5",
     "published_at": "2026-07-16T01:42:56Z",
     "summary": "1 项新功能",

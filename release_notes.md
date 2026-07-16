@@ -1,9 +1,9 @@
 # Release notes
 
-## 🆕 Features
-* feat(songs): 优化歌曲加载逻辑 @qwex888
+## 🐛 Bug Fixes
+* fix(router): 修复未初始化状态下的重定向逻辑 @qwex888
 
 # 更新日志
 
-## 🆕 新特性
-* feat(songs): 优化歌曲加载逻辑 @qwex888
+## 🐛 Bug Fixes
+* fix(router): 修复未初始化状态下的重定向逻辑 @qwex888
