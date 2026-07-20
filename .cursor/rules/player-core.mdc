@@ -1,0 +1,128 @@
+---
+description: 播放器核心逻辑规则 - 修改 player store / SW / 音频缓存相关代码时必须遵守
+globs:
+  - src/stores/player.ts
+  - src/sw.ts
+  - src/sw-sparse-audio.ts
+  - src/offline/media-cache.ts
+  - src/api/music.ts
+  - src/composables/useMediaSession.ts
+  - src/components/layout/PlayerBar.vue
+  - src/components/layout/FullScreenPlayer.vue
+---
+
+# 播放器核心逻辑规则
+
+## 系统架构概览
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                      UI 层                                │
+│  PlayerBar / FullScreenPlayer                            │
+│  - 进度条受 canSeek 控制（不可 seek 时 disabled）            │
+└──────────────────────┬───────────────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────────────┐
+│               Player Store (Pinia)                        │
+│  - Howler html5 / seek / 队列 / hot-swap                  │
+│  - STRM → URL 带 progressive=1（路径 B）                   │
+│  - 本地 → 稀疏补洞 fill-audio-gaps（路径 A）                │
+└──────┬──────────────────────────────────┬────────────────┘
+       │                                  │
+┌──────▼──────────┐            ┌──────────▼────────────────┐
+│  Media Session  │            │   Service Worker           │
+│  seek 亦受       │            │  完整 Cache / 路径 A 稀疏  │
+│  canSeek 约束    │            │  / 路径 B tee 流式         │
+└─────────────────┘            └──────────┬────────────────┘
+                                          │
+                               ┌──────────▼────────────────┐
+                               │  完整缓存 zhiyin-audio-v1  │
+                               └───────────────────────────┘
+```
+
+## 音频来源优先级
+
+1. **完整 Cache blob** — `getCachedAudioObjectUrl()` → `playingFromCache=true`
+2. **Stream URL** — 在线未完整缓存（本地或 STRM+progressive）
+3. **离线无缓存** → 错误提示
+
+## 双路径模型（核心）
+
+播放请求进入 SW 后：
+
+```
+已有完整 Cache？ ──是──► 本地 206（两路径共用）
+        │否
+        ▼
+ URL 含 progressive=1？
+    │是                    │否
+    ▼                      ▼
+ 路径 B（STRM）           路径 A（本地 / Range 友好）
+ tee 流式起播              稀疏 IDB + PLAY_SERVE_CHUNK
+ 跳过稀疏 IDB              闲时 fill-audio-gaps
+ 同流写入完整 Cache        拼满后迁入完整 Cache
+```
+
+### 路径 A — 本地 / 支持 Range
+
+1. 单次最多服务 `PLAY_SERVE_CHUNK`（1MB），立即 206，边下边播、可 seek
+2. 分片写入 IndexedDB（`zhiyin-sparse-audio`），闲时补洞凑整首
+3. 闲时补洞：空洞切成 `IDLE_FILL_CHUNK`（**5MB**）任务，**最多 3 并发**队列消费（类分片上传）
+4. ❌ 禁止把开放 Range 扩成整文件再 `arrayBuffer`
+5. 客户端 `bgCache` → `fill-audio-gaps`（独立 token，只补洞）
+
+### 路径 B — STRM / 明确不可 Range seek
+
+1. **前端主动标记**：`isStrmSong` 时 `buildStreamUrl(..., { progressive: true })` → `&progressive=1`
+2. SW：**禁止** `arrayBuffer` 整包；`body.tee()` 一流给 `<audio>`（200 流式），一流攒完写入 `zhiyin-audio-v1`
+3. **跳过稀疏 IDB**；不跑 `fill-audio-gaps`（避免二次全量下载）
+4. 响应不宣告 `Accept-Ranges`，避免浏览器发 Range
+5. 写完后 `audio-cached` → hot-swap；之后可 seek
+6. 切歌 → `cancel-audio-download` 中止 tee 累加
+
+### 路径选择依据
+
+| 条件 | 路径 |
+|------|------|
+| `isStrmSong` 且未完整缓存 | B（`progressive=1`） |
+| 本地文件 / 非 STRM | A |
+| 任意已完整缓存 | 直接 Cache 206 |
+
+## Seek 与 UI
+
+| 场景 | canSeek | UI |
+|------|---------|-----|
+| 本地（未/已缓存） | ✅ | 进度条可拖 |
+| STRM 未完整缓存 | ❌ | 进度条 **disabled** |
+| STRM 已缓存 / hot-swap 后 | ✅ | 进度条可拖 |
+
+`canSeek = !isStrmSong(currentSong) || playingFromCache`
+
+- `canSeek=false` 时：进度条 disabled + `cursor-not-allowed`
+- `seek()` / Media Session seek：**入口处若 !canSeek 直接 return**
+
+## Stream Token
+
+- `stoken` TTL **60s**，期内可多次使用
+- 路径 A：播放 token 与补洞 token 分离
+- 路径 B：仅播放流一条（tee 兼缓存），勿再开第二条全量
+
+## Hot-Swap
+
+`audio-cached` → `tryHotSwapToBlob`：保存进度 → `initSound(song, false)` → seek 恢复 → `playingFromCache=true`
+
+## 关键不变量
+
+1. canSeek=false → UI 禁用进度条，且 store.seek 拒绝
+2. seek 内不做网络请求
+3. STRM 未缓存走路径 B，不得误入稀疏整包缓冲
+4. 路径 B 不得与 fill-audio-gaps 并行全量下载
+5. soundGeneration / pendingPauseSource / revokeObjectUrl 规则保持不变
+
+## 禁止行为
+
+- ❌ 路径 B 对响应 `arrayBuffer` 再交给 audio（等整首才起播）
+- ❌ STRM 未缓存时允许拖进度条或 Media Session seek
+- ❌ 剥 Range 拉全量再喂给路径 A 的 audio
+- ❌ 路径 A 的 bgCache 再下一整首（只许补洞）
+- ❌ 移除 soundGeneration 检查

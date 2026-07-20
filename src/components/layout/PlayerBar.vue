@@ -55,6 +55,7 @@ watch(progressPercent, (newVal) => {
 
 // 处理进度条拖拽
 const handleSeek = (e: Event) => {
+  if (!playerStore.canSeek) return;
   const target = e.target as HTMLInputElement;
   const val = Number(target.value);
   playerStore.seek((val / 100) * playerStore.duration);
@@ -121,8 +122,10 @@ const toggleQuality = () => {
          min="0" 
          max="100" 
          :value="progressPercent"
+         :disabled="!playerStore.canSeek"
          @input="handleSeek"
-         class="absolute -top-2 -bottom-2 w-full opacity-0 cursor-pointer"
+         class="absolute -top-2 -bottom-2 w-full opacity-0"
+         :class="playerStore.canSeek ? 'cursor-pointer' : 'cursor-not-allowed'"
        />
     </div>
 
@@ -216,8 +219,10 @@ const toggleQuality = () => {
            max="100" 
            data-testid="player-seek"
            :value="progressPercent"
+           :disabled="!playerStore.canSeek"
            @input="handleSeek"
-           class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+           class="absolute inset-0 w-full h-full opacity-0"
+           :class="playerStore.canSeek ? 'cursor-pointer' : 'cursor-not-allowed'"
         />
     </div>
     <!-- 桌面端控制 (进度条/音量/模式) -->

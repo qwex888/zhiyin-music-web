@@ -130,6 +130,7 @@ watch(progressPercent, (newVal) => {
 });
 
 const handleSeek = (e: Event) => {
+  if (!playerStore.canSeek) return;
   const target = e.target as HTMLInputElement;
   const val = Number(target.value);
   playerStore.seek((val / 100) * playerStore.duration);
@@ -639,8 +640,10 @@ const seekToLyric = (time: number) => {
                 min="0" 
                 max="100" 
                 :value="progressPercent"
+                :disabled="!playerStore.canSeek"
                 @input="handleSeek"
-                class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                class="absolute inset-0 w-full h-full opacity-0"
+                :class="playerStore.canSeek ? 'cursor-pointer' : 'cursor-not-allowed'"
               />
             </div>
             <div class="flex justify-between text-xs lg:text-sm text-text-tertiary font-mono">

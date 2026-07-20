@@ -392,10 +392,12 @@ describe('Player store 功能场景', () => {
 
   describe('缓存完成热切 blob', () => {
     it('audio-cached 消息后从 stream 热切到 blob 并恢复进度', async () => {
-      mockCache.getCachedAudioObjectUrl
-        .mockResolvedValueOnce(null)
-        .mockResolvedValue('blob:hot-swap');
-      mockCache.hasCachedAudio.mockResolvedValue(true);
+      // 模拟：起播时尚未入完整 Cache，audio-cached 之后才可读 blob
+      let fullyCached = false;
+      mockCache.hasCachedAudio.mockImplementation(async () => fullyCached);
+      mockCache.getCachedAudioObjectUrl.mockImplementation(async () =>
+        fullyCached ? 'blob:hot-swap' : null,
+      );
 
       const store = usePlayerStore();
       await store.play(localSong(70));
@@ -403,11 +405,16 @@ describe('Player store 功能场景', () => {
       const streamHowl = mockHowlInstances[0];
       streamHowl.play();
       await flush();
+      // 等 bgCache 首轮 hasCachedAudio(false) 走完，避免与后续热切竞态
+      await new Promise((r) => setTimeout(r, 20));
+      await flush();
+
       streamHowl._seek = 55;
       store.progress = 55;
       store.duration = 200;
 
       const beforeCount = mockHowlInstances.length;
+      fullyCached = true;
       emitSwMessage({ type: 'audio-cached', songId: 70, quality: 'original' });
       await flush();
       await new Promise((r) => setTimeout(r, 50));
@@ -415,8 +422,9 @@ describe('Player store 功能场景', () => {
 
       expect(mockHowlInstances.length).toBeGreaterThan(beforeCount);
       expect(store.progress).toBeGreaterThanOrEqual(0);
-      // 热切后应使用 blob（getCachedAudioObjectUrl 第二次起返回 blob）
       expect(mockCache.getCachedAudioObjectUrl).toHaveBeenCalled();
+      const lastSrc = mockHowlInstances[mockHowlInstances.length - 1].options.src as string[];
+      expect(lastSrc[0]).toBe('blob:hot-swap');
     });
 
     it('已是 blob 时忽略重复 audio-cached', async () => {

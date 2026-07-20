@@ -45,8 +45,18 @@ export const musicApi = {
   getStreamToken: (songId: number, quality: 'low' | 'medium' | 'high' | 'lossless' | 'original' = 'high') => {
     return api.post<StreamTokenResponse>('/stream-token', { song_id: songId, quality });
   },
-  buildStreamUrl: (id: number, quality: string, streamToken: string) => {
-    return `/api/stream/${id}?quality=${quality}&stoken=${streamToken}`;
+  buildStreamUrl: (
+    id: number,
+    quality: string,
+    streamToken: string,
+    opts?: { progressive?: boolean },
+  ) => {
+    const params = new URLSearchParams({
+      quality,
+      stoken: streamToken,
+    });
+    if (opts?.progressive) params.set('progressive', '1');
+    return `/api/stream/${id}?${params.toString()}`;
   },
   getCoverUrl: (id: number) => {
     return `/api/covers/${id}?size=original`;

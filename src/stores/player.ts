@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { Song } from '@/types';
 import { isStrmSong } from '@/types';
 import { musicApi } from '@/api/music';
@@ -24,8 +24,10 @@ import {
   updatePositionState,
 } from '@/composables/useMediaSession';
 
-const swCacheNotifier = new Map<string, () => void>();
-/** SW/audio-cached 额外回调：缓存完成后热切 blob（由 store 挂载） */
+type SparseFillResult = 'done' | 'cancelled' | 'need_token' | 'error';
+
+const sparseFillWaiters = new Map<string, (result: SparseFillResult) => void>();
+/** 完整缓存就绪后热切 blob（由 store 挂载） */
 let audioCachedHandler: ((songId: number, quality: StreamQuality) => void) | null = null;
 
 if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
@@ -33,9 +35,14 @@ if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
     if (event.data?.type === 'audio-cached') {
       const songId = Number(event.data.songId);
       const q = (event.data.quality || 'original') as StreamQuality;
-      const k = `${songId}:${q}`;
-      swCacheNotifier.get(k)?.();
       audioCachedHandler?.(songId, q);
+    }
+    if (event.data?.type === 'sparse-fill-result') {
+      const songId = Number(event.data.songId);
+      const q = (event.data.quality || 'original') as string;
+      const k = `${songId}:${q}`;
+      const result = event.data.result as SparseFillResult;
+      sparseFillWaiters.get(k)?.(result);
     }
   });
 }
@@ -52,6 +59,8 @@ export const usePlayerStore = defineStore('player', () => {
   const quality = ref<'low' | 'medium' | 'high' | 'lossless' | 'original'>('original');
   const progress = ref(0);
   const duration = ref(0);
+  const playingFromCache = ref(false);
+  const canSeek = computed(() => !isStrmSong(currentSong.value) || playingFromCache.value);
 
   // 队列管理委托给 useQueueManager
   const {
@@ -101,45 +110,95 @@ export const usePlayerStore = defineStore('player', () => {
     cachingInProgress.add(key);
 
     try {
-      const ac = new AbortController();
+      if (await hasCachedAudio(songId, quality)) {
+        void tryHotSwapToBlob(songId, quality);
+        return;
+      }
 
+      const ac = new AbortController();
       const unwatch = watch(currentSong, () => {
         if (currentSong.value?.id !== songId) ac.abort();
       });
-      const onVis = () => { if (document.hidden) ac.abort(); };
-      document.addEventListener('visibilitychange', onVis);
 
-      try {
-        const cachedBySw = await Promise.race([
-          new Promise<boolean>(resolve => {
-            swCacheNotifier.set(key, () => resolve(true));
-          }),
-          new Promise<boolean>(resolve => {
-            setTimeout(() => resolve(false), 180_000);
-          }),
-          new Promise<boolean>((_, reject) => {
-            ac.signal.addEventListener('abort', () => reject(new DOMException('cancelled')));
-          }),
-        ]);
+      // 路径 B（STRM）：播放 tee 已负责整文件 Cache，只等待 audio-cached，勿 fill-audio-gaps
+      const isStrm = isStrmSong(currentSong.value) && currentSong.value?.id === songId;
+      if (isStrm) {
+        try {
+          while (!ac.signal.aborted) {
+            if (await hasCachedAudio(songId, quality)) {
+              void tryHotSwapToBlob(songId, quality);
+              return;
+            }
+            await new Promise((r) => setTimeout(r, 500));
+          }
+        } finally {
+          unwatch();
+        }
+        return;
+      }
 
-        // SW 路径由 audioCachedHandler 触发热切；此处仅处理 fallback 写入成功
-        if (cachedBySw) return;
-        if (await hasCachedAudio(songId, quality)) {
-          void tryHotSwapToBlob(songId, quality);
+      const waitFillResult = () => new Promise<SparseFillResult>((resolve, reject) => {
+        const onAbort = () => {
+          sparseFillWaiters.delete(key);
+          cancelSwDownload(songId, quality);
+          reject(new DOMException('cancelled'));
+        };
+        if (ac.signal.aborted) {
+          onAbort();
           return;
         }
+        sparseFillWaiters.set(key, (result) => {
+          ac.signal.removeEventListener('abort', onAbort);
+          resolve(result);
+        });
+        ac.signal.addEventListener('abort', onAbort, { once: true });
+      });
 
-        if (currentSong.value?.id !== songId) return;
-        const { data } = await musicApi.getStreamToken(songId, quality);
-        const url = musicApi.buildStreamUrl(songId, quality, data.stream_token);
-        await cacheAudioFromStreamUrl(url, songId, quality, ac.signal);
-        if (!ac.signal.aborted && await hasCachedAudio(songId, quality)) {
-          void tryHotSwapToBlob(songId, quality);
+      try {
+        // 路径 A：最多续 token 几次，覆盖大文件闲时补洞超过 60s 的情况
+        for (let attempt = 0; attempt < 8; attempt++) {
+          if (ac.signal.aborted || currentSong.value?.id !== songId) return;
+          if (await hasCachedAudio(songId, quality)) {
+            void tryHotSwapToBlob(songId, quality);
+            return;
+          }
+
+          const { data } = await musicApi.getStreamToken(songId, quality);
+          const url = musicApi.buildStreamUrl(songId, quality, data.stream_token);
+
+          if (!navigator.serviceWorker?.controller) {
+            await cacheAudioFromStreamUrl(url, songId, quality, ac.signal);
+            if (!ac.signal.aborted && await hasCachedAudio(songId, quality)) {
+              void tryHotSwapToBlob(songId, quality);
+            }
+            return;
+          }
+
+          const resultPromise = waitFillResult();
+          navigator.serviceWorker.controller.postMessage({
+            type: 'fill-audio-gaps',
+            songId,
+            quality,
+            url,
+          });
+
+          const result = await resultPromise;
+          sparseFillWaiters.delete(key);
+
+          if (result === 'done') {
+            void tryHotSwapToBlob(songId, quality);
+            return;
+          }
+          if (result === 'need_token') continue;
+          if (result === 'error' && attempt < 7) {
+            await new Promise((r) => setTimeout(r, 1000));
+            continue;
+          }
+          return;
         }
       } finally {
-        swCacheNotifier.delete(key);
+        sparseFillWaiters.delete(key);
         unwatch();
-        document.removeEventListener('visibilitychange', onVis);
       }
     } catch { /* cancelled or error, silently skip */ }
     finally { cachingInProgress.delete(key); }
@@ -191,11 +250,15 @@ export const usePlayerStore = defineStore('player', () => {
     if (cachedUrl) {
       src = cachedUrl;
       activeObjectUrl = cachedUrl;
+      playingFromCache.value = true;
     } else if (isAppOnline()) {
       try {
         const { data } = await musicApi.getStreamToken(song.id, q);
         if (gen !== soundGeneration) return gen;
-        src = musicApi.buildStreamUrl(song.id, q, data.stream_token);
+        src = musicApi.buildStreamUrl(song.id, q, data.stream_token, {
+          progressive: isStrmSong(song),
+        });
+        playingFromCache.value = false;
         if (song.cover_id) cacheCoverInBackground(song.cover_id);
       } catch (err: any) {
         if (gen !== soundGeneration) return gen;
@@ -548,7 +611,7 @@ export const usePlayerStore = defineStore('player', () => {
     if (song) {
       const needsInit = currentSong.value?.id !== song.id || !sound;
       if (needsInit) {
-        // 切歌时取消上一首歌的 SW 下载（必须在 currentSong 更新前执行）
+        // 切歌时取消上一首歌的闲时补洞（必须在 currentSong 更新前执行）
         if (currentSong.value && currentSong.value.id !== song.id) {
           const prevQ = (isStrmSong(currentSong.value) ? 'original' : quality.value) as StreamQuality;
           cancelSwDownload(currentSong.value.id, prevQ);
@@ -689,6 +752,7 @@ export const usePlayerStore = defineStore('player', () => {
   };
 
   const seek = (time: number) => {
+    if (!canSeek.value) return;
     if (!sound || !duration.value || !isFinite(time) || time < 0) return;
     const clampedTime = Math.min(time, duration.value);
 
@@ -794,6 +858,7 @@ export const usePlayerStore = defineStore('player', () => {
     currentIndex.value = -1;
     isBuffering.value = false;
     isPlaying.value = false;
+    playingFromCache.value = false;
     progress.value = 0;
     duration.value = 0;
   };
@@ -809,6 +874,7 @@ export const usePlayerStore = defineStore('player', () => {
       revokeObjectUrl();
       isPlaying.value = false;
       isBuffering.value = false;
+      playingFromCache.value = false;
       progress.value = 0;
       duration.value = 0;
       currentSong.value = null;
@@ -837,6 +903,7 @@ export const usePlayerStore = defineStore('player', () => {
     currentIndex,
     isPlaying,
     isBuffering,
+    canSeek,
     volume,
     playMode,
     quality,

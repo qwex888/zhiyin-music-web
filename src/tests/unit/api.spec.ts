@@ -41,6 +41,12 @@ describe('Music API', () => {
     expect(url).toBe('/api/stream/123?quality=lossless&stoken=abc123');
   });
 
+  it('buildStreamUrl appends progressive=1 when requested', () => {
+    const url = musicApi.buildStreamUrl(123, 'original', 'tok', { progressive: true });
+    expect(url).toContain('progressive=1');
+    expect(url).toContain('stoken=tok');
+  });
+
   it('getStreamToken calls POST /stream-token', async () => {
     await musicApi.getStreamToken(123, 'high');
     expect(api.post).toHaveBeenCalledWith('/stream-token', { song_id: 123, quality: 'high' });
