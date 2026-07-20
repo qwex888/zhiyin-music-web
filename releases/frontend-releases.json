@@ -1,5 +1,27 @@
 [
   {
+    "version": "v0.6.7",
+    "published_at": "2026-07-20T07:07:50Z",
+    "summary": "1 项新功能",
+    "changes": {
+      "feature": [
+        "feat(player): 修改播放器核心逻辑规则和稀疏音频缓存功能"
+      ],
+      "fix": [],
+      "perf": [],
+      "refactor": [],
+      "docs": [
+        "docs(README): 更新用户身份说明以解决标签写入问题"
+      ],
+      "i18n": [],
+      "build": [],
+      "ci": [],
+      "style": [],
+      "test": [],
+      "chore": []
+    }
+  },
+  {
     "version": "v0.6.6",
     "published_at": "2026-07-16T03:25:13Z",
     "summary": "1 项修复",
