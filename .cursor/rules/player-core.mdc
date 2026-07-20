@@ -103,9 +103,10 @@ globs:
 
 ## Stream Token
 
-- `stoken` TTL **60s**，期内可多次使用
-- 路径 A：播放 token 与补洞 token 分离
+- `stoken` TTL 默认 **180s**，期内可多次使用（配置项 `stream_token_ttl_secs`，改后需重启后端）
+- 路径 A：播放 token 与补洞 token 分离；补洞遇 401 → `need_token` 续领
 - 路径 B：仅播放流一条（tee 兼缓存），勿再开第二条全量
+- **播放路径续签**：拿到 `expires_in` 后提前约 30s 换新 token 并重建 Howl；`onloaderror` / `onplayerror` / audio `error` 时最多 3 次 401 恢复重建（保留进度）
 
 ## Hot-Swap
 

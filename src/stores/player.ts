@@ -77,7 +77,13 @@ export const usePlayerStore = defineStore('player', () => {
   const SKIP_THROTTLE_MS = 300;
   const STRM_MAX_RETRIES = 3;
   const STRM_RETRY_DELAYS = [2000, 4000, 8000];
+  /** 在 token 过期前提前续签的秒数，给弱网续签请求留余量 */
+  const TOKEN_RENEW_AHEAD_SECS = 30;
+  const TOKEN_RENEW_MAX_ATTEMPTS = 3;
   let strmRetryCount = 0;
+  let tokenRenewAttempts = 0;
+  let tokenRenewTimer: ReturnType<typeof setTimeout> | null = null;
+  let tokenRenewInProgress = false;
   let progressInterval: ReturnType<typeof setInterval> | null = null;
   let activeObjectUrl: string | null = null;
   type PauseSource = 'user' | 'system';
@@ -102,6 +108,128 @@ export const usePlayerStore = defineStore('player', () => {
       URL.revokeObjectURL(activeObjectUrl);
       activeObjectUrl = null;
     }
+  };
+
+  const clearTokenRenewTimer = () => {
+    if (tokenRenewTimer) {
+      clearTimeout(tokenRenewTimer);
+      tokenRenewTimer = null;
+    }
+  };
+
+  /**
+   * 根据 expires_in 安排提前续签，避免临近过期才请求导致弱网续签失败。
+   */
+  const scheduleTokenRenew = (expiresInSec: number, song: Song) => {
+    clearTokenRenewTimer();
+    if (playingFromCache.value || activeObjectUrl) return;
+    if (!expiresInSec || expiresInSec <= 0) return;
+
+    const ahead = Math.min(TOKEN_RENEW_AHEAD_SECS, Math.max(15, Math.floor(expiresInSec * 0.2)));
+    const delayMs = Math.max(5_000, (expiresInSec - ahead) * 1000);
+    const songId = song.id;
+
+    tokenRenewTimer = setTimeout(() => {
+      if (currentSong.value?.id !== songId) return;
+      if (playingFromCache.value || activeObjectUrl) return;
+      void renewStreamAndRebuild(song, 'proactive');
+    }, delayMs);
+  };
+
+  /**
+   * 换新 stoken 并重建 Howl，保留进度（提前续签 / 401 恢复共用）。
+   */
+  const renewStreamAndRebuild = async (
+    song: Song,
+    reason: 'proactive' | 'error',
+  ): Promise<boolean> => {
+    if (tokenRenewInProgress) return false;
+    if (playingFromCache.value || activeObjectUrl) return false;
+    if (currentSong.value?.id !== song.id) return false;
+    if (!isAppOnline()) return false;
+
+    if (reason === 'error' && tokenRenewAttempts >= TOKEN_RENEW_MAX_ATTEMPTS) {
+      return false;
+    }
+
+    tokenRenewInProgress = true;
+    if (reason === 'error') tokenRenewAttempts++;
+
+    try {
+      let resumeAt = progress.value;
+      try {
+        const s = sound?.seek();
+        if (typeof s === 'number' && isFinite(s) && s >= 0) resumeAt = s;
+      } catch { /* keep progress.value */ }
+      const wasPlaying = isPlaying.value || reason === 'error';
+
+      pendingPauseSource = 'system';
+      clearTokenRenewTimer();
+      const gen = await initSound(song, false);
+      if (gen !== soundGeneration || !sound || currentSong.value?.id !== song.id) return false;
+
+      // 已热切到 blob，无需再播 stream
+      if (activeObjectUrl) {
+        tokenRenewAttempts = 0;
+        const loaded = await waitForHowlLoad(sound, gen);
+        if (!loaded || gen !== soundGeneration || !sound) return false;
+        const maxDur = duration.value > 0 ? duration.value : resumeAt;
+        const clamped = Math.max(0, Math.min(resumeAt, maxDur));
+        if (clamped > 0) {
+          pendingPauseSource = 'system';
+          sound.seek(clamped);
+          progress.value = clamped;
+        }
+        if (wasPlaying) {
+          try { sound.play(); } catch { /* ignore */ }
+        }
+        return true;
+      }
+
+      const loaded = await waitForHowlLoad(sound, gen);
+      if (!loaded || gen !== soundGeneration || !sound) return false;
+
+      const maxDur = duration.value > 0 ? duration.value : resumeAt;
+      const clamped = Math.max(0, Math.min(resumeAt, maxDur));
+      if (clamped > 0) {
+        pendingPauseSource = 'system';
+        sound.seek(clamped);
+        progress.value = clamped;
+      }
+
+      if (wasPlaying) {
+        try {
+          sound.play();
+        } catch {
+          isPlaying.value = false;
+          isBuffering.value = false;
+        }
+      } else {
+        isPlaying.value = false;
+        isBuffering.value = false;
+        setMediaSessionPlaybackState(false);
+      }
+
+      if (reason === 'error') {
+        console.warn('[Player] stream token 续签恢复', { songId: song.id, resumeAt: clamped });
+      }
+      return true;
+    } catch (err) {
+      console.warn('[Player] stream token 续签失败', err);
+      return false;
+    } finally {
+      tokenRenewInProgress = false;
+    }
+  };
+
+  /** onloaderror / onplayerror / audio error：优先尝试续签重建 */
+  const tryRecoverFromStreamError = (song: Song, gen: number): boolean => {
+    if (gen !== soundGeneration) return false;
+    if (playingFromCache.value || activeObjectUrl) return false;
+    if (tokenRenewAttempts >= TOKEN_RENEW_MAX_ATTEMPTS) return false;
+    if (hotSwapInProgress || tokenRenewInProgress) return false;
+    void renewStreamAndRebuild(song, 'error');
+    return true;
   };
 
   async function bgCache(songId: number, quality: StreamQuality): Promise<void> {
@@ -155,7 +283,7 @@ export const usePlayerStore = defineStore('player', () => {
       });
 
       try {
-        // 路径 A：最多续 token 几次，覆盖大文件闲时补洞超过 60s 的情况
+        // 路径 A：最多续 token 几次，覆盖大文件闲时补洞超过 TTL 的情况
         for (let attempt = 0; attempt < 8; attempt++) {
           if (ac.signal.aborted || currentSong.value?.id !== songId) return;
           if (await hasCachedAudio(songId, quality)) {
@@ -217,6 +345,7 @@ export const usePlayerStore = defineStore('player', () => {
   };
 
   const destroySound = () => {
+    clearTokenRenewTimer();
     if (sound) {
       sound.unload();
       sound = null;
@@ -251,6 +380,8 @@ export const usePlayerStore = defineStore('player', () => {
       src = cachedUrl;
       activeObjectUrl = cachedUrl;
       playingFromCache.value = true;
+      clearTokenRenewTimer();
+      tokenRenewAttempts = 0;
     } else if (isAppOnline()) {
       try {
         const { data } = await musicApi.getStreamToken(song.id, q);
@@ -259,11 +390,13 @@ export const usePlayerStore = defineStore('player', () => {
           progressive: isStrmSong(song),
         });
         playingFromCache.value = false;
+        scheduleTokenRenew(data.expires_in ?? 180, song);
         if (song.cover_id) cacheCoverInBackground(song.cover_id);
       } catch (err: any) {
         if (gen !== soundGeneration) return gen;
         isBuffering.value = false;
         isPlaying.value = false;
+        clearTokenRenewTimer();
         if (err?.response?.status !== 401) {
           toast.error(i18n.global.t('offline.play_token_failed'));
         }
@@ -273,6 +406,7 @@ export const usePlayerStore = defineStore('player', () => {
       toast.error(i18n.global.t('offline.play_not_cached'));
       isBuffering.value = false;
       isPlaying.value = false;
+      clearTokenRenewTimer();
       return gen;
     }
 
@@ -334,6 +468,7 @@ export const usePlayerStore = defineStore('player', () => {
         isBuffering.value = false;
         isPlaying.value = true;
         strmRetryCount = 0;
+        tokenRenewAttempts = 0;
         setMediaSessionPlaybackState(true);
         updateMediaSessionMetadata(song);
         startProgressTimer();
@@ -375,6 +510,12 @@ export const usePlayerStore = defineStore('player', () => {
               isBuffering.value = false;
               stopProgressTimer();
             }
+          });
+
+          // 播放中途 stream 失败（常见于 stoken 过期后的 Range）：尝试续签重建
+          node.addEventListener('error', () => {
+            if (gen !== soundGeneration) return;
+            if (tryRecoverFromStreamError(song, gen)) return;
           });
 
           if (visibilityHandler) {
@@ -428,6 +569,8 @@ export const usePlayerStore = defineStore('player', () => {
           STRM_RETRY_DELAYS: STRM_RETRY_DELAYS,
         });
         if (gen !== soundGeneration) return;
+        // stream token 过期等：优先续签重建 Howl
+        if (tryRecoverFromStreamError(song, gen)) return;
         if (isStrmSong(song) && progress.value > 0) {
           destroySound();
           isBuffering.value = false;
@@ -469,6 +612,7 @@ export const usePlayerStore = defineStore('player', () => {
           STRM_RETRY_DELAYS: STRM_RETRY_DELAYS,
         });
         if (gen !== soundGeneration) return;
+        if (tryRecoverFromStreamError(song, gen)) return;
         if (isStrmSong(song) && progress.value > 0) {
           destroySound();
           isBuffering.value = false;

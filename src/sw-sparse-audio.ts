@@ -21,7 +21,7 @@ export const IDLE_FILL_CHUNK = 5 * 1024 * 1024;
 export const IDLE_FILL_CONCURRENCY = 3;
 
 /** 起播/seek 单次最多拉取并返回的字节，避免等整首下完才给 <audio> */
-export const PLAY_SERVE_CHUNK = 1024 * 1024;
+export const PLAY_SERVE_CHUNK = 5 * 1024 * 1024;
 
 export type SparseMeta = {
   key: string;
