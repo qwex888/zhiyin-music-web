@@ -84,6 +84,12 @@ const router = createRouter({
       meta: { onlineOnly: true, adminOnly: true },
     },
     {
+      path: '/settings/scrape-sources',
+      name: 'ScrapeSources',
+      component: () => import('@/views/ScrapeSources.vue'),
+      meta: { onlineOnly: true, adminOnly: true },
+    },
+    {
       path: '/organize',
       name: 'Organize',
       component: () => import('@/views/Organize.vue'),

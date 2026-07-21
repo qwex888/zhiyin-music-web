@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import {
   Search, ChevronDown, ChevronUp, Music2, CheckCircle2, Clock, AlertCircle, Play, Filter,
   Eye, RefreshCw, X, FileText, Tag, Library, Zap, ScrollText, XCircle, Trash2,
@@ -20,14 +21,45 @@ import type {
 } from '@/types/scrape';
 import type { Song } from '@/types';
 import SelectableSongList from '@/components/common/SelectableSongList.vue';
+import { useScrapeSources } from '@/composables/useScrapeSources';
+import { useAuthStore } from '@/stores/auth';
+
+const router = useRouter();
 
 const { t } = useI18n();
 const toast = useToast();
 const libraryStore = useLibraryStore();
+const authStore = useAuthStore();
+const {
+  enabledSources,
+  ensureLoaded,
+  getSourceLabel,
+  getSourceColorClass,
+  getSourceBadgeStyle,
+  getSourceMeta,
+  getEnabledKeys,
+} = useScrapeSources();
 
 // ── Tab ──────────────────────────────────────────────────────
 
-const activeTab = ref<'library' | 'sessions' | 'logs'>('library');
+const requestedTab = router.currentRoute.value.query.tab;
+const activeTab = ref<'library' | 'sessions' | 'logs'>(
+  requestedTab === 'sessions' || requestedTab === 'logs' ? requestedTab : 'library',
+);
+watch(
+  () => router.currentRoute.value.query.tab,
+  (tab) => {
+    if (tab === 'library' || tab === 'sessions' || tab === 'logs') {
+      activeTab.value = tab;
+    }
+  },
+);
+watch(activeTab, (tab) => {
+  if (router.currentRoute.value.query.tab === tab) return;
+  void router.replace({
+    query: { ...router.currentRoute.value.query, tab },
+  });
+});
 
 // ── Tab1: 音乐库选歌 ─────────────────────────────────────────
 
@@ -236,7 +268,7 @@ const searchForm = ref({
   title: '',
   artist: '',
   album: '',
-  sources: ['netease', 'qq', 'kugou', 'kuwo', 'migu'] as string[],
+  sources: [] as string[],
 });
 const isSearching = ref(false);
 const searchResults = ref<SearchResultItem[]>([]);
@@ -434,14 +466,16 @@ const lyricsContent = ref('');
 const lyricsLoading = ref(false);
 const lyricsTitle = ref('');
 
-const allSources = [
-  { value: 'netease', labelKey: 'scrape.source_netease' },
-  { value: 'qq', labelKey: 'scrape.source_qq' },
-  { value: 'kugou', labelKey: 'scrape.source_kugou' },
-  { value: 'kuwo', labelKey: 'scrape.source_kuwo' },
-  { value: 'migu', labelKey: 'scrape.source_migu' },
-  { value: 'acoustid', labelKey: 'scrape.source_acoustid' },
-];
+const allSources = computed(() =>
+  enabledSources.value.map(s => ({
+    value: s.key,
+    label: s.display_name,
+    color: s.color,
+    capabilities: s.capabilities,
+  }))
+);
+
+const goManageSources = () => router.push({ name: 'ScrapeSources' });
 
 const filteredSessions = computed(() => {
   if (filterStatus.value === 'all') return sessions.value;
@@ -682,22 +716,9 @@ const getStatusIcon = (status: string) => {
   }
 };
 
-const getSourceColor = (source: string) => {
-  switch (source) {
-    case 'netease': return 'bg-red-500/10 text-red-500 border-red-500/20';
-    case 'qq': return 'bg-green-500/10 text-green-500 border-green-500/20';
-    case 'kugou': return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
-    case 'kuwo': return 'bg-orange-500/10 text-orange-500 border-orange-500/20';
-    case 'migu': return 'bg-purple-500/10 text-purple-500 border-purple-500/20';
-    case 'acoustid': return 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20';
-    default: return 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20';
-  }
-};
+const getSourceColor = (source: string) => getSourceColorClass(source);
 
-const getSourceLabel = (source: string) => {
-  const key = `scrape.source_${source}` as const;
-  return t(key);
-};
+const sourceBadgeStyle = (source: string) => getSourceBadgeStyle(source);
 
 // ── Tab3: 刮削日志 ────────────────────────────────────────────
 
@@ -807,7 +828,9 @@ const parseDetail = (json: string | null): Record<string, unknown> | null => {
   try { return JSON.parse(json); } catch { return null; }
 };
 
-onMounted(() => {
+onMounted(async () => {
+  await ensureLoaded();
+  searchForm.value.sources = getEnabledKeys();
   fetchAllLibrarySongs();
   fetchSessions();
   libraryStore.fetchArtists({ limit: 1000 });
@@ -832,13 +855,22 @@ onUnmounted(() => {
   <div class="flex flex-col h-full p-0 md:p-4 overflow-hidden animate-fade-in">
     <!-- 页头 -->
     <header class="pt-2 md:pt-0 flex-none mb-6">
-      <h1 class="text-2xl md:text-3xl font-bold text-text-primary tracking-tight mb-1 flex items-center gap-3">
-        <Search class="w-7 h-7 md:w-8 md:h-8 text-primary" />
-        {{ t('scrape.title') }}
-      </h1>
-      <p class="text-text-secondary text-sm max-w-2xl">
-        {{ t('scrape.subtitle') }}
-      </p>
+      <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <h1 class="text-2xl md:text-3xl font-bold text-text-primary tracking-tight mb-1 flex items-center gap-3">
+            <Search class="w-7 h-7 md:w-8 md:h-8 text-primary" />
+            {{ t('scrape.title') }}
+          </h1>
+          <p class="text-text-secondary text-sm max-w-2xl">
+            {{ t('scrape.subtitle') }}
+          </p>
+        </div>
+        <button v-if="authStore.isAdmin" @click="goManageSources"
+          class="flex items-center gap-2 px-3 py-2 rounded-xl text-sm border border-border hover:border-primary/30 text-text-secondary hover:text-primary transition-colors">
+          <Tag class="w-4 h-4" />
+          {{ t('scrape.manage_sources') }}
+        </button>
+      </div>
     </header>
 
     <!-- Tab 切换 -->
@@ -1130,9 +1162,10 @@ onUnmounted(() => {
                         <div class="flex flex-wrap gap-2">
                           <button v-for="src in allSources" :key="src.value" @click="toggleSource(src.value)"
                             class="px-2.5 py-1 rounded-md text-xs font-medium transition-all border" :class="searchForm.sources.includes(src.value)
-                              ? getSourceColor(src.value)
-                              : 'bg-bg-main text-text-tertiary border-border'">
-                            {{ t(src.labelKey) }}
+                              ? (sourceBadgeStyle(src.value) ? '' : getSourceColor(src.value))
+                              : 'bg-bg-main text-text-tertiary border-border'"
+                            :style="searchForm.sources.includes(src.value) ? sourceBadgeStyle(src.value) : undefined">
+                            {{ src.label }}
                           </button>
                         </div>
                       </div>
@@ -1216,8 +1249,13 @@ onUnmounted(() => {
 
                         <div class="flex flex-wrap items-center gap-1.5">
                           <span class="text-[10px] font-medium px-1.5 py-0.5 rounded border"
-                            :class="getSourceColor(candidate.source)">
+                            :class="sourceBadgeStyle(candidate.source) ? '' : getSourceColor(candidate.source)"
+                            :style="sourceBadgeStyle(candidate.source)">
                             {{ getSourceLabel(candidate.source) }}
+                          </span>
+                          <span v-if="!candidate.album_img && !getSourceMeta(candidate.source)?.capabilities.cover"
+                            class="text-[10px] text-text-tertiary bg-bg-elevate px-1.5 py-0.5 rounded">
+                            {{ t('scrape.no_cover_source') }}
                           </span>
                           <span v-if="candidate.year"
                             class="text-[10px] text-text-tertiary bg-bg-elevate px-1.5 py-0.5 rounded">

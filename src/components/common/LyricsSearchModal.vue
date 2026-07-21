@@ -6,6 +6,7 @@ import { musicApi } from '@/api/music';
 import { useToast } from '@/composables/useToast';
 import { songEvents } from '@/utils/songEvents';
 import { usePlayerStore } from '@/stores/player';
+import { useScrapeSources } from '@/composables/useScrapeSources';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -23,6 +24,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const toast = useToast();
 const playerStore = usePlayerStore();
+const { getSourceLabel, getSourceColorClass, getSourceBadgeStyle, ensureLoaded } = useScrapeSources();
 
 const title = ref('');
 const artist = ref('');
@@ -202,7 +204,8 @@ onBeforeUnmount(() => {
   if (userScrollTimer) clearTimeout(userScrollTimer);
 });
 
-watch(() => props.modelValue, (val) => {
+watch(() => props.modelValue, async (val) => {
+  if (val) await ensureLoaded();
   if (val) {
     title.value = props.songTitle || '';
     artist.value = props.songArtist || '';
@@ -359,27 +362,11 @@ const onMouseUp = () => {
   touchDeltaX.value = 0;
 };
 
-const sourceLabel = (source: string) => {
-  const labels: Record<string, string> = {
-    netease: '网易云',
-    qq: 'QQ音乐',
-    kugou: '酷狗',
-    kuwo: '酷我',
-    migu: '咪咕',
-  };
-  return labels[source] || source;
-};
+const sourceLabel = (source: string) => getSourceLabel(source);
 
-const sourceColor = (source: string) => {
-  const colors: Record<string, string> = {
-    netease: 'bg-red-500/10 text-red-500 border-red-500/20',
-    qq: 'bg-green-500/10 text-green-600 border-green-500/20',
-    kugou: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
-    kuwo: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
-    migu: 'bg-purple-500/10 text-purple-500 border-purple-500/20',
-  };
-  return colors[source] || 'bg-primary/10 text-primary border-primary/20';
-};
+const sourceColor = (source: string) => getSourceColorClass(source);
+
+const sourceBadgeStyle = (source: string) => getSourceBadgeStyle(source);
 </script>
 
 <template>
@@ -454,7 +441,8 @@ const sourceColor = (source: string) => {
                 <span
                   v-if="currentResult"
                   class="text-xs px-2 py-1 rounded-md font-medium border"
-                  :class="sourceColor(currentResult.source)"
+                  :class="sourceBadgeStyle(currentResult.source) ? '' : sourceColor(currentResult.source)"
+                  :style="sourceBadgeStyle(currentResult.source)"
                 >
                   {{ sourceLabel(currentResult.source) }}
                 </span>

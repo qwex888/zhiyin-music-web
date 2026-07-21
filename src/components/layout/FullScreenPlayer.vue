@@ -3,13 +3,16 @@ import { ref, computed, onUnmounted, watch, nextTick } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useAuthStore } from '@/stores/auth';
 import { useI18n } from 'vue-i18n';
-import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, ChevronDown, Music2, ListMusic, Volume2, Mic2, List, Cloud, MoreHorizontal, Info, Share2, Loader2 } from 'lucide-vue-next';
+import { useRouter } from 'vue-router';
+import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, ChevronDown, Music2, ListMusic, Volume2, Mic2, List, Cloud, MoreHorizontal, Info, Share2, Loader2, Search } from 'lucide-vue-next';
 import { isStrmSong } from '@/types';
 import { musicApi } from '@/api/music';
+import { scrapeApi } from '@/api/scrape';
 import { hasCachedAudioAnyQuality } from '@/offline/media-cache';
 import { songEvents } from '@/utils/songEvents';
 import CoverImage from '@/components/common/CoverImage.vue';
 import LyricsSearchModal from '@/components/common/LyricsSearchModal.vue';
+import { useToast } from '@/composables/useToast';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -23,6 +26,8 @@ const emit = defineEmits<{
 const playerStore = usePlayerStore();
 const authStore = useAuthStore();
 const { t } = useI18n();
+const router = useRouter();
+const toast = useToast();
 
 // Watch for visibility changes to lock body scroll
 watch(() => props.modelValue, (val) => {
@@ -60,6 +65,20 @@ const closeMoreMenu = () => {
 const openLyricsSearch = () => {
   showMoreMenu.value = false;
   showLyricsSearch.value = true;
+};
+
+const scrapeCurrentSong = async () => {
+  const song = playerStore.currentSong;
+  if (!song) return;
+  showMoreMenu.value = false;
+  try {
+    await scrapeApi.batchCreate([song.id]);
+    toast.success(t('scrape.batch_created', { count: 1 }));
+    close();
+    await router.push({ name: 'Scrape', query: { tab: 'sessions' } });
+  } catch {
+    toast.error(t('common.error'));
+  }
 };
 
 // Drag to close logic
@@ -477,6 +496,14 @@ const seekToLyric = (time: number) => {
                 class="absolute right-0 top-full mt-2 w-48 bg-bg-surface rounded-xl border border-border shadow-xl z-50 overflow-hidden"
                 @click.stop
               >
+                <button
+                  v-if="authStore.isAdmin"
+                  @click="scrapeCurrentSong"
+                  class="flex items-center gap-3 w-full px-4 py-3 text-sm text-text-primary hover:bg-bg-elevate transition-colors"
+                >
+                  <Search class="w-4 h-4" />
+                  <span>{{ t('songs.actions.scrape') }}</span>
+                </button>
                 <button
                   v-if="authStore.isAdmin"
                   @click="openLyricsSearch"

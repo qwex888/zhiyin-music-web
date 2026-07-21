@@ -190,7 +190,7 @@ const handleMenuAction = async (action: string, song: Song) => {
       try {
         await scrapeApi.batchCreate([song.id]);
         toast.success(t('scrape.batch_created', { count: 1 }));
-        router.push('/scrape');
+        router.push({ name: 'Scrape', query: { tab: 'sessions' } });
       } catch {
         toast.error(t('common.error'));
       }
