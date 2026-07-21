@@ -92,6 +92,13 @@ export const usePlayerStore = defineStore('player', () => {
   let listenersAttachedForGen = -1;
   let playLock = false;
   let hotSwapInProgress = false;
+  /** 预热中的 blob Howl（未提交前不影响正在播放的 sound） */
+  let warmupHowl: Howl | null = null;
+  let warmupObjectUrl: string | null = null;
+  /** 仅当与旧流偏差超过此值才二次对齐，避免多余 seek 触发 blob 再缓冲 */
+  const HOT_SWAP_RESYNC_THRESHOLD_SEC = 0.3;
+  /** 切换前要求 buffered 至少超前这么多秒，避免「playing 但马上 underrun」 */
+  const HOT_SWAP_BUFFER_AHEAD_SEC = 0.4;
   // 在 initSound 之后赋值，供 bgCache / SW 消息调用
   let tryHotSwapToBlob: (songId: number, q: StreamQuality) => Promise<void> = async () => {};
 
@@ -107,6 +114,17 @@ export const usePlayerStore = defineStore('player', () => {
     if (activeObjectUrl) {
       URL.revokeObjectURL(activeObjectUrl);
       activeObjectUrl = null;
+    }
+  };
+
+  const cancelWarmupHowl = () => {
+    if (warmupHowl) {
+      try { warmupHowl.unload(); } catch { /* ignore */ }
+      warmupHowl = null;
+    }
+    if (warmupObjectUrl) {
+      URL.revokeObjectURL(warmupObjectUrl);
+      warmupObjectUrl = null;
     }
   };
 
@@ -143,7 +161,7 @@ export const usePlayerStore = defineStore('player', () => {
     song: Song,
     reason: 'proactive' | 'error',
   ): Promise<boolean> => {
-    if (tokenRenewInProgress) return false;
+    if (tokenRenewInProgress || hotSwapInProgress) return false;
     if (playingFromCache.value || activeObjectUrl) return false;
     if (currentSong.value?.id !== song.id) return false;
     if (!isAppOnline()) return false;
@@ -248,7 +266,7 @@ export const usePlayerStore = defineStore('player', () => {
         if (currentSong.value?.id !== songId) ac.abort();
       });
 
-      // 路径 B（STRM）：播放 tee 已负责整文件 Cache，只等待 audio-cached，勿 fill-audio-gaps
+      // 路径 B（STRM）：eager pump 负责整文件 Cache，只等待 audio-cached，勿 fill-audio-gaps
       const isStrm = isStrmSong(currentSong.value) && currentSong.value?.id === songId;
       if (isStrm) {
         try {
@@ -346,6 +364,7 @@ export const usePlayerStore = defineStore('player', () => {
 
   const destroySound = () => {
     clearTokenRenewTimer();
+    cancelWarmupHowl();
     if (sound) {
       sound.unload();
       sound = null;
@@ -356,6 +375,139 @@ export const usePlayerStore = defineStore('player', () => {
       document.removeEventListener('visibilitychange', visibilityHandler);
       visibilityHandler = null;
     }
+  };
+
+  const ensureAudioNodeListeners = (song: Song, gen: number) => {
+    if (listenersAttachedForGen === gen) return;
+    listenersAttachedForGen = gen;
+
+    try {
+      const node = (sound as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
+      if (!node) return;
+
+      node.onwaiting = () => { if (gen === soundGeneration) isBuffering.value = true; };
+      node.onplaying = () => {
+        if (gen !== soundGeneration) return;
+        isBuffering.value = false;
+        if (!isPlaying.value) {
+          console.log('[Player] 浏览器自动恢复播放，同步状态');
+          isPlaying.value = true;
+          wasUnexpectedlyPaused = false;
+          setMediaSessionPlaybackState(true);
+          startProgressTimer();
+        }
+      };
+
+      node.addEventListener('pause', () => {
+        if (gen !== soundGeneration) return;
+        const pauseSource = consumePauseIntent();
+        if (pauseSource) {
+          console.log('[Player] 预期暂停 (audio node)', { source: pauseSource });
+          return;
+        }
+        if (isPlaying.value) {
+          console.warn('[Player] 意外暂停 (audio node)', { reason: 'device_disconnect_or_system_interrupt' });
+          wasUnexpectedlyPaused = true;
+          isPlaying.value = false;
+          isBuffering.value = false;
+          stopProgressTimer();
+        }
+      });
+
+      // 播放中途 stream 失败（常见于 stoken 过期后的 Range）：尝试续签重建
+      node.addEventListener('error', () => {
+        if (gen !== soundGeneration) return;
+        if (tryRecoverFromStreamError(song, gen)) return;
+      });
+
+      if (visibilityHandler) {
+        document.removeEventListener('visibilitychange', visibilityHandler);
+      }
+      visibilityHandler = () => {
+        if (!document.hidden && gen === soundGeneration && sound) {
+          const audioNode = (sound as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
+          if (audioNode?.paused && isPlaying.value) {
+            console.warn('[Player] visibilitychange: 检测到音频已暂停，同步状态');
+            isPlaying.value = false;
+            stopProgressTimer();
+          }
+        }
+      };
+      document.addEventListener('visibilitychange', visibilityHandler);
+    } catch { /* ignore */ }
+  };
+
+  const HOWL_FORMATS = ['mp3', 'flac', 'wav', 'ogg', 'aac', 'm4a', 'opus', 'webm', 'weba', 'mp4'];
+
+  /**
+   * 给已存在的 Howl 挂上生命周期（热切提交后用；initSound 仍走构造参数）。
+   * blob 热切实例在预热阶段无这些回调，提交后必须补绑。
+   */
+  const bindHowlLifecycle = (
+    h: Howl,
+    song: Song,
+    gen: number,
+    needsCache: boolean,
+    cacheTargetId: number,
+    cacheTargetQuality: StreamQuality,
+  ) => {
+    h.on('load', () => {
+      if (gen !== soundGeneration) return;
+      duration.value = h.duration() || 0;
+      if (isStrmSong(song) && duration.value > 0 && isFinite(duration.value)) {
+        const hasMissing = !song.duration_secs
+          || song.bitrate == null
+          || song.sample_rate == null
+          || song.channels == null
+          || song.bit_depth == null
+          || !song?.codec
+          || song.codec == null;
+        if (hasMissing) {
+          musicApi.reportMetadata(song.id, { duration_secs: duration.value }).then(() => {
+            songEvents.emitSongUpdated([song.id]);
+            setTimeout(() => songEvents.emitSongUpdated([song.id]), 5000);
+          }).catch(() => {});
+        }
+      }
+    });
+    h.on('play', () => {
+      if (gen !== soundGeneration) return;
+      isBuffering.value = false;
+      isPlaying.value = true;
+      strmRetryCount = 0;
+      tokenRenewAttempts = 0;
+      setMediaSessionPlaybackState(true);
+      updateMediaSessionMetadata(song);
+      startProgressTimer();
+      if (needsCache) {
+        void bgCache(cacheTargetId, cacheTargetQuality);
+      }
+      ensureAudioNodeListeners(song, gen);
+    });
+    h.on('pause', () => {
+      if (gen !== soundGeneration) return;
+      if (pendingPauseSource) return;
+      isBuffering.value = false;
+      isPlaying.value = false;
+      setMediaSessionPlaybackState(false);
+      stopProgressTimer();
+    });
+    h.on('end', () => {
+      if (gen !== soundGeneration) return;
+      isBuffering.value = false;
+      isPlaying.value = false;
+      stopProgressTimer();
+      next();
+    });
+    // 已是完整 blob：不再走 stream 续签 / STRM 重试
+    h.on('loaderror', () => {
+      if (gen !== soundGeneration) return;
+      console.warn('[Player] blob howl loaderror after hot-swap', { songId: song.id });
+    });
+    h.on('playerror', () => {
+      if (gen !== soundGeneration) return;
+      console.warn('[Player] blob howl playerror after hot-swap', { songId: song.id });
+    });
   };
 
   const initSound = async (song: Song, resetProgress = true): Promise<number> => {
@@ -390,7 +542,7 @@ export const usePlayerStore = defineStore('player', () => {
           progressive: isStrmSong(song),
         });
         playingFromCache.value = false;
-        scheduleTokenRenew(data.expires_in ?? 180, song);
+        scheduleTokenRenew(data.expires_in ?? 300, song);
         if (song.cover_id) cacheCoverInBackground(song.cover_id);
       } catch (err: any) {
         if (gen !== soundGeneration) return gen;
@@ -419,7 +571,7 @@ export const usePlayerStore = defineStore('player', () => {
     sound = new Howl({
       src: [src],
       html5: true,
-      format: ['mp3', 'flac', 'wav', 'ogg', 'aac', 'm4a', 'opus', 'webm', 'weba', 'mp4'],
+      format: [...HOWL_FORMATS],
       volume: volume.value,
       onload: () => {
         console.log('[Player] onload', {
@@ -475,64 +627,7 @@ export const usePlayerStore = defineStore('player', () => {
         if (needsCache) {
           void bgCache(cacheTargetId, cacheTargetQuality);
         }
-
-        if (listenersAttachedForGen === gen) return;
-        listenersAttachedForGen = gen;
-
-        try {
-          const node = (sound as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
-          if (!node) return;
-
-          node.onwaiting = () => { if (gen === soundGeneration) isBuffering.value = true; };
-          node.onplaying = () => {
-            if (gen !== soundGeneration) return;
-            isBuffering.value = false;
-            if (!isPlaying.value) {
-              console.log('[Player] 浏览器自动恢复播放，同步状态');
-              isPlaying.value = true;
-              wasUnexpectedlyPaused = false;
-              setMediaSessionPlaybackState(true);
-              startProgressTimer();
-            }
-          };
-
-          node.addEventListener('pause', () => {
-            if (gen !== soundGeneration) return;
-            const pauseSource = consumePauseIntent();
-            if (pauseSource) {
-              console.log('[Player] 预期暂停 (audio node)', { source: pauseSource });
-              return;
-            }
-            if (isPlaying.value) {
-              console.warn('[Player] 意外暂停 (audio node)', { reason: 'device_disconnect_or_system_interrupt' });
-              wasUnexpectedlyPaused = true;
-              isPlaying.value = false;
-              isBuffering.value = false;
-              stopProgressTimer();
-            }
-          });
-
-          // 播放中途 stream 失败（常见于 stoken 过期后的 Range）：尝试续签重建
-          node.addEventListener('error', () => {
-            if (gen !== soundGeneration) return;
-            if (tryRecoverFromStreamError(song, gen)) return;
-          });
-
-          if (visibilityHandler) {
-            document.removeEventListener('visibilitychange', visibilityHandler);
-          }
-          visibilityHandler = () => {
-            if (!document.hidden && gen === soundGeneration && sound) {
-              const audioNode = (sound as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
-              if (audioNode?.paused && isPlaying.value) {
-                console.warn('[Player] visibilitychange: 检测到音频已暂停，同步状态');
-                isPlaying.value = false;
-                stopProgressTimer();
-              }
-            }
-          };
-          document.addEventListener('visibilitychange', visibilityHandler);
-        } catch { /* ignore */ }
+        ensureAudioNodeListeners(song, gen);
       },
       onpause: () => {
         if (gen !== soundGeneration) return;
@@ -669,12 +764,170 @@ export const usePlayerStore = defineStore('player', () => {
     });
   };
 
+  /** 预热 Howl：不依赖 soundGeneration（切歌由调用方校验） */
+  const waitForHowlReady = (h: Howl): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (h.state() === 'loaded') {
+        resolve(true);
+        return;
+      }
+      const onLoad = () => {
+        h.off('loaderror', onErr);
+        resolve(true);
+      };
+      const onErr = () => {
+        h.off('load', onLoad);
+        resolve(false);
+      };
+      h.once('load', onLoad);
+      h.once('loaderror', onErr);
+    });
+  };
+
   /**
-   * 流式播放期间 Cache 写完后，将 Howl 热切到 blob，使 seekable 覆盖全曲。
-   * 已是 blob / 已切歌 / 重入 时直接跳过。
+   * 等待 Howl 真正开始播放。
+   * html5 模式下 play() 会置 _playLock，此时 fade/seek 会被排队；
+   * 若旧流先 fade 而新流尚未出声，就会听成「断一下再恢复」。
+   */
+  const waitForHowlPlaying = (h: Howl, timeoutMs = 4000): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (typeof h.playing === 'function' && h.playing()) {
+        resolve(true);
+        return;
+      }
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        h.off('play', onPlay);
+        h.off('playerror', onErr);
+        resolve(ok);
+      };
+      const onPlay = () => {
+        // 再等 audio 节点 playing，避免 play 事件早于实际出声
+        const node = (h as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
+        if (!node) {
+          finish(true);
+          return;
+        }
+        if (!node.paused && node.readyState >= 2) {
+          finish(true);
+          return;
+        }
+        const onPlaying = () => {
+          node.removeEventListener('playing', onPlaying);
+          finish(true);
+        };
+        node.addEventListener('playing', onPlaying);
+        setTimeout(() => {
+          node.removeEventListener('playing', onPlaying);
+          finish(typeof h.playing === 'function' && h.playing());
+        }, 1500);
+      };
+      const onErr = () => finish(false);
+      const timer = setTimeout(() => finish(typeof h.playing === 'function' && h.playing()), timeoutMs);
+      h.once('play', onPlay);
+      h.once('playerror', onErr);
+    });
+  };
+
+  /** 播放中对齐进度：直接改 currentTime，避免 Howler seek 先 pause 再 play 造成缺口 */
+  const syncHowlCurrentTime = (h: Howl, sec: number) => {
+    const node = (h as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
+    const dur = node && isFinite(node.duration) && node.duration > 0
+      ? node.duration
+      : (h.duration() || 0);
+    const clamped = dur > 0
+      ? Math.max(0, Math.min(sec, Math.max(0, dur - 0.05)))
+      : Math.max(0, sec);
+    if (node && isFinite(clamped)) {
+      try {
+        node.currentTime = clamped;
+        return;
+      } catch { /* fall through */ }
+    }
+    try { h.seek(clamped); } catch { /* ignore */ }
+  };
+
+  const mediaBufferedEnough = (
+    node: HTMLAudioElement,
+    atSec: number,
+    aheadSec: number,
+  ): boolean => {
+    if (node.seeking) return false;
+    if (node.readyState < 3) return false;
+    try {
+      const needEnd = atSec + aheadSec;
+      for (let i = 0; i < node.buffered.length; i++) {
+        if (node.buffered.start(i) <= atSec + 0.05 && node.buffered.end(i) >= needEnd) {
+          return true;
+        }
+      }
+    } catch { /* ignore */ }
+    return node.readyState >= 4;
+  };
+
+  /** fade 前等待目标进度附近已有可播缓冲（旧流保持原音量） */
+  const waitForMediaBuffered = (
+    h: Howl,
+    atSec: number,
+    timeoutMs = 12_000,
+  ): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const node = (h as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
+      if (!node) {
+        resolve(true);
+        return;
+      }
+      const check = () => mediaBufferedEnough(node, atSec, HOT_SWAP_BUFFER_AHEAD_SEC);
+      if (check()) {
+        resolve(true);
+        return;
+      }
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        for (const ev of ['canplay', 'canplaythrough', 'seeked', 'progress', 'playing', 'timeupdate'] as const) {
+          node.removeEventListener(ev, onEvt);
+        }
+        resolve(ok);
+      };
+      const onEvt = () => {
+        if (check()) finish(true);
+      };
+      const timer = setTimeout(() => finish(check()), timeoutMs);
+      for (const ev of ['canplay', 'canplaythrough', 'seeked', 'progress', 'playing', 'timeupdate'] as const) {
+        node.addEventListener(ev, onEvt);
+      }
+    });
+  };
+
+  /** 确认 currentTime 在推进，避免 stuck on seek / underrun */
+  const waitForPlaybackAdvancing = async (
+    h: Howl,
+    timeoutMs = 2500,
+  ): Promise<boolean> => {
+    const node = (h as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
+    if (!node) return typeof h.playing === 'function' && h.playing();
+    const t0 = node.currentTime;
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      await new Promise<void>((r) => setTimeout(r, 40));
+      if (node.paused) return false;
+      if (node.currentTime >= t0 + 0.03) return true;
+    }
+    return !node.paused && node.readyState >= 3 && !node.seeking;
+  };
+
+  /**
+   * 流式播放期间 Cache 写完后，双 Howl 预热 + 短 crossfade 热切到 blob。
+   * 预热失败则保持旧流；与 token 续签互斥；切歌时 cancelWarmupHowl。
    */
   tryHotSwapToBlob = async (songId: number, q: StreamQuality): Promise<void> => {
-    if (hotSwapInProgress || !sound || activeObjectUrl) return;
+    if (hotSwapInProgress || tokenRenewInProgress || !sound || activeObjectUrl || playingFromCache.value) return;
     const song = currentSong.value;
     if (!song || song.id !== songId) return;
 
@@ -682,45 +935,215 @@ export const usePlayerStore = defineStore('player', () => {
     if (q !== expectedQ) return;
     if (!(await hasCachedAudio(songId, q))) return;
 
-    if (hotSwapInProgress || !sound || activeObjectUrl) return;
+    if (hotSwapInProgress || tokenRenewInProgress || !sound || activeObjectUrl || playingFromCache.value) return;
     if (currentSong.value?.id !== songId) return;
 
     hotSwapInProgress = true;
+    const startGen = soundGeneration;
+
     try {
+      const blobUrl = await getCachedAudioObjectUrl(songId, q);
+      if (
+        !blobUrl
+        || soundGeneration !== startGen
+        || !sound
+        || activeObjectUrl
+        || playingFromCache.value
+        || currentSong.value?.id !== songId
+        || tokenRenewInProgress
+      ) {
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
+        return;
+      }
+
+      cancelWarmupHowl();
+      warmupObjectUrl = blobUrl;
+      warmupHowl = new Howl({
+        src: [blobUrl],
+        html5: true,
+        format: [...HOWL_FORMATS],
+        volume: 0,
+      });
+
+      const ready = await waitForHowlReady(warmupHowl);
+      if (
+        !ready
+        || soundGeneration !== startGen
+        || !sound
+        || activeObjectUrl
+        || currentSong.value?.id !== songId
+        || !warmupHowl
+      ) {
+        // 预热失败：保持旧流，勿卸正在播的 Howl
+        cancelWarmupHowl();
+        return;
+      }
+
       let resumeAt = progress.value;
       try {
         const s = sound.seek();
         if (typeof s === 'number' && isFinite(s) && s >= 0) resumeAt = s;
       } catch { /* keep progress.value */ }
-      const wasPlaying = isPlaying.value;
 
+      const wasPlaying = isPlaying.value || (typeof sound.playing === 'function' && sound.playing());
+      const targetVol = volume.value;
+
+      // 只 seek 一次（未播放时），避免二次 seek 丢掉缓冲、拉出一串 blob 206
       pendingPauseSource = 'system';
-      const gen = await initSound(song, false);
-      if (gen !== soundGeneration || !sound || currentSong.value?.id !== songId) return;
-      if (!activeObjectUrl) return;
+      syncHowlCurrentTime(warmupHowl, resumeAt);
 
-      const loaded = await waitForHowlLoad(sound, gen);
-      if (!loaded || gen !== soundGeneration || !sound) return;
-
-      const maxDur = duration.value > 0 ? duration.value : resumeAt;
-      const clamped = Math.max(0, Math.min(resumeAt, maxDur));
-      if (clamped > 0) {
-        pendingPauseSource = 'system';
-        sound.seek(clamped);
-        progress.value = clamped;
+      const bufferedOk = await waitForMediaBuffered(warmupHowl, resumeAt);
+      if (
+        !bufferedOk
+        || soundGeneration !== startGen
+        || !sound
+        || currentSong.value?.id !== songId
+        || !warmupHowl
+      ) {
+        // 缓冲未就绪：放弃热切，保持旧流（不制造静音缺口）
+        cancelWarmupHowl();
+        return;
       }
 
+      let warmId: number | undefined;
       if (wasPlaying) {
+        // 预热阶段强制静音，防止与旧流叠音
+        try { warmupHowl.volume(0); } catch { /* ignore */ }
+        try { warmupHowl.mute(true); } catch { /* ignore */ }
         try {
-          sound.play();
+          warmId = warmupHowl.play() as number;
         } catch {
-          isPlaying.value = false;
-          isBuffering.value = false;
+          cancelWarmupHowl();
+          return;
+        }
+        const playingOk = await waitForHowlPlaying(warmupHowl);
+        if (
+          !playingOk
+          || soundGeneration !== startGen
+          || !sound
+          || currentSong.value?.id !== songId
+          || !warmupHowl
+        ) {
+          cancelWarmupHowl();
+          return;
+        }
+
+        // 仅当偏差较大才二次对齐，并对齐后再等缓冲
+        let nowAt = resumeAt;
+        try {
+          const s = sound.seek();
+          if (typeof s === 'number' && isFinite(s) && s >= 0) nowAt = s;
+        } catch { /* keep */ }
+        const warmNode = (warmupHowl as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
+        const warmAt = warmNode?.currentTime ?? resumeAt;
+        if (Math.abs(nowAt - warmAt) > HOT_SWAP_RESYNC_THRESHOLD_SEC) {
+          pendingPauseSource = 'system';
+          syncHowlCurrentTime(warmupHowl, nowAt);
+          const reBuf = await waitForMediaBuffered(warmupHowl, nowAt);
+          if (!reBuf || soundGeneration !== startGen || !warmupHowl) {
+            cancelWarmupHowl();
+            return;
+          }
+          resumeAt = nowAt;
+        } else {
+          resumeAt = warmAt;
+        }
+
+        const advancing = await waitForPlaybackAdvancing(warmupHowl);
+        if (
+          !advancing
+          || soundGeneration !== startGen
+          || !sound
+          || currentSong.value?.id !== songId
+          || !warmupHowl
+        ) {
+          cancelWarmupHowl();
+          return;
+        }
+        // 预热期间可能被 play 路径改写音量，再锁一次静音
+        try { warmupHowl.volume(0); } catch { /* ignore */ }
+        try { warmupHowl.mute(true); } catch { /* ignore */ }
+      }
+
+      // 瞬间交接：先静音旧流、再开新流，禁止双边 fade 叠音
+      pendingPauseSource = 'system';
+      try { sound.volume(0); } catch { /* ignore */ }
+      try { sound.mute(true); } catch { /* ignore */ }
+      try { warmupHowl.mute(false); } catch { /* ignore */ }
+      try {
+        if (typeof warmId === 'number') warmupHowl.volume(targetVol, warmId);
+        else warmupHowl.volume(targetVol);
+      } catch {
+        try { warmupHowl.volume(targetVol); } catch { /* ignore */ }
+      }
+
+      if (
+        soundGeneration !== startGen
+        || currentSong.value?.id !== songId
+        || !warmupHowl
+        || !sound
+      ) {
+        cancelWarmupHowl();
+        if (soundGeneration === startGen && sound) {
+          try { sound.mute(false); } catch { /* ignore */ }
+          try { sound.volume(targetVol); } catch { /* ignore */ }
+        }
+        return;
+      }
+
+      // 提交：先作废旧回调，再切换引用，最后 unload 旧实例
+      const oldSound = sound;
+      const newHowl = warmupHowl;
+      const newUrl = warmupObjectUrl;
+      warmupHowl = null;
+      warmupObjectUrl = null;
+
+      soundGeneration += 1;
+      const gen = soundGeneration;
+      listenersAttachedForGen = -1;
+
+      sound = newHowl;
+      activeObjectUrl = newUrl;
+      playingFromCache.value = true;
+      clearTokenRenewTimer();
+      tokenRenewAttempts = 0;
+
+      try { newHowl.mute(false); } catch { /* ignore */ }
+      try { newHowl.volume(targetVol); } catch { /* ignore */ }
+      duration.value = newHowl.duration() || duration.value;
+      try {
+        const s = newHowl.seek();
+        if (typeof s === 'number' && isFinite(s) && s >= 0) {
+          progress.value = s;
+        } else {
+          progress.value = resumeAt;
+        }
+      } catch {
+        progress.value = resumeAt;
+      }
+
+      bindHowlLifecycle(newHowl, song, gen, false, songId, q);
+
+      pendingPauseSource = 'system';
+      try { oldSound.unload(); } catch { /* ignore */ }
+
+      if (wasPlaying) {
+        isBuffering.value = false;
+        isPlaying.value = true;
+        setMediaSessionPlaybackState(true);
+        updateMediaSessionMetadata(song);
+        startProgressTimer();
+        ensureAudioNodeListeners(song, gen);
+        // 若 crossfade 后预热意外停了，补一次 play
+        if (typeof newHowl.playing === 'function' && !newHowl.playing()) {
+          try { newHowl.play(); } catch { /* ignore */ }
         }
       } else {
+        try { newHowl.pause(); } catch { /* ignore */ }
         isPlaying.value = false;
         isBuffering.value = false;
         setMediaSessionPlaybackState(false);
+        stopProgressTimer();
       }
     } finally {
       hotSwapInProgress = false;
@@ -753,6 +1176,11 @@ export const usePlayerStore = defineStore('player', () => {
     }
 
     if (song) {
+      // 同曲再点：直接返回，禁止二次 Howl.play（pool 可能叠出第二个实例）
+      if (currentSong.value?.id === song.id && sound) {
+        return;
+      }
+
       const needsInit = currentSong.value?.id !== song.id || !sound;
       if (needsInit) {
         // 切歌时取消上一首歌的闲时补洞（必须在 currentSong 更新前执行）
@@ -1053,6 +1481,7 @@ export const usePlayerStore = defineStore('player', () => {
     quality,
     progress,
     duration,
+    playingFromCache,
     play,
     pause,
     togglePlay,

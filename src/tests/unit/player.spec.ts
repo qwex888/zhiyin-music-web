@@ -8,6 +8,7 @@ const { mockHowlInstances, MockHowl } = vi.hoisted(() => {
     options: Record<string, unknown>;
     _seek: number;
     _playing: boolean;
+    _volume: number;
     _state: string;
     play: () => number;
     pause: () => void;
@@ -15,35 +16,48 @@ const { mockHowlInstances, MockHowl } = vi.hoisted(() => {
     duration: () => number;
     seek: (t?: number) => unknown;
     state: () => string;
-    on: () => unknown;
+    volume: (v?: number) => unknown;
+    fade: (from: number, to: number, ms: number) => unknown;
+    mute: (m?: boolean) => unknown;
+    playing: () => boolean;
+    on: (event: string, cb: () => void) => unknown;
     once: (event: string, cb: () => void) => unknown;
-    off: () => unknown;
+    off: (event?: string, cb?: () => void) => unknown;
   }> = [];
 
   class MockHowl {
     options: Record<string, unknown>;
     _seek = 0;
     _playing = false;
+    _volume = 1;
+    _muted = false;
     _state: 'unloaded' | 'loading' | 'loaded' = 'loading';
+    _handlers: Record<string, Array<() => void>> = {};
 
     constructor(opts: Record<string, unknown>) {
       this.options = opts;
+      if (typeof opts.volume === 'number') this._volume = opts.volume;
       mockHowlInstances.push(this);
       queueMicrotask(() => {
         this._state = 'loaded';
         (opts.onload as (() => void) | undefined)?.();
+        this._emit('load');
       });
     }
 
     play() {
       this._playing = true;
-      (this.options.onplay as (() => void) | undefined)?.();
+      queueMicrotask(() => {
+        (this.options.onplay as (() => void) | undefined)?.();
+        this._emit('play');
+      });
       return 1;
     }
 
     pause() {
       this._playing = false;
       (this.options.onpause as (() => void) | undefined)?.();
+      this._emit('pause');
     }
 
     unload() {
@@ -59,6 +73,7 @@ const { mockHowlInstances, MockHowl } = vi.hoisted(() => {
       if (typeof t === 'number') {
         this._seek = t;
         (this.options.onseek as (() => void) | undefined)?.();
+        this._emit('seek');
         return this;
       }
       return this._seek;
@@ -68,24 +83,64 @@ const { mockHowlInstances, MockHowl } = vi.hoisted(() => {
       return this._state;
     }
 
-    on() {
+    volume(v?: number) {
+      if (typeof v === 'number') {
+        this._volume = v;
+        return this;
+      }
+      return this._volume;
+    }
+
+    fade(_from: number, to: number, _ms: number) {
+      this._volume = to;
+      return this;
+    }
+
+    mute(m?: boolean) {
+      if (typeof m === 'boolean') {
+        this._muted = m;
+        return this;
+      }
+      return this._muted;
+    }
+
+    playing() {
+      return this._playing;
+    }
+
+    _emit(event: string) {
+      for (const cb of [...(this._handlers[event] || [])]) {
+        try { cb(); } catch { /* ignore */ }
+      }
+    }
+
+    on(event: string, cb: () => void) {
+      (this._handlers[event] ||= []).push(cb);
       return this;
     }
 
     once(event: string, cb: () => void) {
+      const wrap = () => {
+        this.off(event, wrap);
+        cb();
+      };
       if (event === 'load' && this._state === 'loaded') {
-        queueMicrotask(cb);
-      } else if (event === 'load') {
-        const prev = this.options.onload as (() => void) | undefined;
-        this.options.onload = () => {
-          prev?.();
-          cb();
-        };
+        queueMicrotask(wrap);
+        return this;
       }
-      return this;
+      return this.on(event, wrap);
     }
 
-    off() {
+    off(event?: string, cb?: () => void) {
+      if (!event) {
+        this._handlers = {};
+        return this;
+      }
+      if (!cb) {
+        delete this._handlers[event];
+        return this;
+      }
+      this._handlers[event] = (this._handlers[event] || []).filter((f) => f !== cb);
       return this;
     }
   }
@@ -261,6 +316,23 @@ describe('Player store 功能场景', () => {
       await flush();
       expect(store.isPlaying).toBe(true);
     });
+
+    it('同曲再点 play 不新建 Howl、不二次 play', async () => {
+      const store = usePlayerStore();
+      const song = localSong(4);
+      await store.play(song);
+      await flush();
+      mockHowlInstances[0]?.play();
+      await flush();
+      const count = mockHowlInstances.length;
+      const playSpy = vi.spyOn(mockHowlInstances[0], 'play');
+
+      await store.play(song);
+      await flush();
+
+      expect(mockHowlInstances.length).toBe(count);
+      expect(playSpy).not.toHaveBeenCalled();
+    });
   });
 
   describe('seek', () => {
@@ -417,6 +489,10 @@ describe('Player store 功能场景', () => {
       fullyCached = true;
       emitSwMessage({ type: 'audio-cached', songId: 70, quality: 'original' });
       await flush();
+      // 等热切完整结束，避免异步泄漏到下一用例
+      await vi.waitFor(() => {
+        expect(store.playingFromCache).toBe(true);
+      }, { timeout: 3000 });
       await new Promise((r) => setTimeout(r, 50));
       await flush();
 

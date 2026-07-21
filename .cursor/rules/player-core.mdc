@@ -32,7 +32,7 @@ globs:
 ┌──────▼──────────┐            ┌──────────▼────────────────┐
 │  Media Session  │            │   Service Worker           │
 │  seek 亦受       │            │  完整 Cache / 路径 A 稀疏  │
-│  canSeek 约束    │            │  / 路径 B tee 流式         │
+│  canSeek 约束    │            │  / 路径 B eager pump      │
 └─────────────────┘            └──────────┬────────────────┘
                                           │
                                ┌──────────▼────────────────┐
@@ -58,27 +58,31 @@ globs:
     │是                    │否
     ▼                      ▼
  路径 B（STRM）           路径 A（本地 / Range 友好）
- tee 流式起播              稀疏 IDB + PLAY_SERVE_CHUNK
+ eager pump 流式起播       稀疏 IDB + PLAY_SERVE_CHUNK
  跳过稀疏 IDB              闲时 fill-audio-gaps
- 同流写入完整 Cache        拼满后迁入完整 Cache
+ 泵满后写入完整 Cache      拼满后迁入完整 Cache
 ```
 
 ### 路径 A — 本地 / 支持 Range
 
-1. 单次最多服务 `PLAY_SERVE_CHUNK`（1MB），立即 206，边下边播、可 seek
-2. 分片写入 IndexedDB（`zhiyin-sparse-audio`），闲时补洞凑整首
-3. 闲时补洞：空洞切成 `IDLE_FILL_CHUNK`（**5MB**）任务，**最多 3 并发**队列消费（类分片上传）
-4. ❌ 禁止把开放 Range 扩成整文件再 `arrayBuffer`
-5. 客户端 `bgCache` → `fill-audio-gaps`（独立 token，只补洞）
+1. 单次最多服务 `PLAY_SERVE_CHUNK`（**上限 5MB**），立即 206，边下边播、可 seek
+2. **注意**：`<audio>` 自己发的 Range 经常只有 ~1MB；SW 按请求区间拉取，**不会**因为上限是 5MB 就每次都下 5MB。Network 里一串 ~1MB = 浏览器缓冲策略，不是常量没改生效
+3. 分片写入 IndexedDB（`zhiyin-sparse-audio`），闲时补洞凑整首
+4. 闲时补洞：空洞切成 `IDLE_FILL_CHUNK`（**5MB**）任务，**最多 3 并发**；若剩余空洞 &lt; 5MB，请求会更小（如图中并行的 ~2MB）
+5. ❌ 禁止把开放 Range 扩成整文件再 `arrayBuffer`
+6. 客户端 `bgCache` → `fill-audio-gaps`（独立 token，只补洞）
 
 ### 路径 B — STRM / 明确不可 Range seek
 
 1. **前端主动标记**：`isStrmSong` 时 `buildStreamUrl(..., { progressive: true })` → `&progressive=1`
-2. SW：**禁止** `arrayBuffer` 整包；`body.tee()` 一流给 `<audio>`（200 流式），一流攒完写入 `zhiyin-audio-v1`
-3. **跳过稀疏 IDB**；不跑 `fill-audio-gaps`（避免二次全量下载）
-4. 响应不宣告 `Accept-Ranges`，避免浏览器发 Range
-5. 写完后 `audio-cached` → hot-swap；之后可 seek
-6. 切歌 → `cancel-audio-download` 中止 tee 累加
+2. SW：**eager pump**（`createEagerProgressivePump`）全速读上游；`forClient` 与 `cacheParts` 解耦（禁止裸 `tee()` 共享背压）
+3. `<audio>` cancel 响应体时：**只停 client 推送，上游继续泵完并写 Cache**（否则起播后网络停缓）
+4. 内存峰值上限 `PROGRESSIVE_EAGER_MAX_BYTES`（**100MB**）：超限则只播不写 Cache；client 仍在读时对积压硬背压
+5. **跳过稀疏 IDB**；不跑 `fill-audio-gaps`
+6. 同曲仅一路：`AbortController` + `progressiveGeneration`；token 续签/重入先 abort 旧会话，旧 cache 任务不得写入
+7. 写完后 `audio-cached` → hot-swap；之后可 seek
+8. 切歌 → `cancel-audio-download` 中止并抬升世代
+9. 响应不宣告 `Accept-Ranges`；调试头 `X-Zhiyin-Progressive: eager-pump-v3`
 
 ### 路径选择依据
 
@@ -103,14 +107,24 @@ globs:
 
 ## Stream Token
 
-- `stoken` TTL 默认 **180s**，期内可多次使用（配置项 `stream_token_ttl_secs`，改后需重启后端）
+- `stoken` TTL 默认 **300s**，期内可多次使用（配置项 `stream_token_ttl_secs`，改后需重启后端）
 - 路径 A：播放 token 与补洞 token 分离；补洞遇 401 → `need_token` 续领
-- 路径 B：仅播放流一条（tee 兼缓存），勿再开第二条全量
-- **播放路径续签**：拿到 `expires_in` 后提前约 30s 换新 token 并重建 Howl；`onloaderror` / `onplayerror` / audio `error` 时最多 3 次 401 恢复重建（保留进度）
+- 路径 B：eager pump 单路上游（兼缓存），勿再开第二条全量；超 100MB 只播不缓存
+- **播放路径续签**：拿到 `expires_in` 后提前约 30s 换新 token 并重建 Howl；`onloaderror` / `onplayerror` / audio `error` 时最多 3 次 401 恢复重建（保留进度）；续签重建会 abort 旧 progressive 会话
+- **同曲再点 play**：直接 return，禁止二次 `Howl.play` 叠实例
 
-## Hot-Swap
+## Hot-Swap（双 Howl 预热 + 瞬间交接）
 
-`audio-cached` → `tryHotSwapToBlob`：保存进度 → `initSound(song, false)` → seek 恢复 → `playingFromCache=true`
+`audio-cached` → `tryHotSwapToBlob`：
+
+1. 与 `tokenRenewInProgress` / `hotSwapInProgress` 互斥；已是 blob 则跳过
+2. **旧 Howl 继续播**，后台建预热 Howl（**mute + volume 0**，禁止出声）
+3. load → **只 seek 一次** → 等 `buffered`/`readyState` 够用 → play（仍静音）→ 等 playing 且 currentTime 推进
+4. 仅当与旧流偏差 &gt; ~0.3s 才二次对齐（并对齐后再等缓冲）
+5. **瞬间交接**：先 mute/volume0 旧流 → 再 unmute 新流到目标音量 → 立刻 unload 旧实例（**禁止双边 fade 叠音**）
+6. 缓冲超时 / 预热失败 → `cancelWarmupHowl`，**保持旧流**
+7. 切歌 / `destroySound` → `cancelWarmupHowl`
+8. ❌ 禁止 crossfade 双源同响；❌ 禁止缓冲未就绪就切走旧流
 
 ## 关键不变量
 
@@ -119,11 +133,17 @@ globs:
 3. STRM 未缓存走路径 B，不得误入稀疏整包缓冲
 4. 路径 B 不得与 fill-audio-gaps 并行全量下载
 5. soundGeneration / pendingPauseSource / revokeObjectUrl 规则保持不变
+6. hot-swap 与 token 续签重建互斥（`hotSwapInProgress` ↔ `tokenRenewInProgress`）
 
 ## 禁止行为
 
 - ❌ 路径 B 对响应 `arrayBuffer` 再交给 audio（等整首才起播）
+- ❌ 路径 B 使用裸 `tee()` 导致缓存被播放背压拖死
+- ❌ 同曲并存多路 progressive / 多 Howl 播放实例（含同曲再点 play）
 - ❌ STRM 未缓存时允许拖进度条或 Media Session seek
 - ❌ 剥 Range 拉全量再喂给路径 A 的 audio
 - ❌ 路径 A 的 bgCache 再下一整首（只许补洞）
 - ❌ 移除 soundGeneration 检查
+- ❌ 热切预热失败时先 destroy 正在播放的 Howl
+- ❌ 热切与 token 续签同时重建 sound
+- ❌ 热切 crossfade 双源同响；缓冲未就绪就切走旧流

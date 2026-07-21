@@ -20,8 +20,10 @@ export const IDLE_FILL_CHUNK = 5 * 1024 * 1024;
 /** 闲时补洞最大并发（类上传分片池） */
 export const IDLE_FILL_CONCURRENCY = 3;
 
-/** 起播/seek 单次最多拉取并返回的字节，避免等整首下完才给 <audio> */
-export const PLAY_SERVE_CHUNK = 5 * 1024 * 1024;
+/** 起播/seek 单次最多拉取并返回的字节（上限）。
+ * 实际单次大小由浏览器 Range 决定；Chrome 播放时常只要 ~1MB，
+ * 因此 Network 里仍可能看到大量 ~1MB 请求——增大本常量不会强迫浏览器一次要 5MB。 */
+export const PLAY_SERVE_CHUNK = 3 * 1024 * 1024;
 
 export type SparseMeta = {
   key: string;
@@ -44,8 +46,13 @@ type RangeSpec = { start: number; end: number | null };
 
 const keyLocks = new Map<string, Promise<unknown>>();
 const activeFills = new Map<string, AbortController>();
-/** 路径 B：progressive tee 下载中的 AbortController */
+/** 路径 B：progressive eager 泵内存上限；超过则只播不缓存，避免撑爆 SW */
+export const PROGRESSIVE_EAGER_MAX_BYTES = 100 * 1024 * 1024;
+
+/** 路径 B：progressive 下载中的 AbortController（同曲仅一路） */
 const activeProgressive = new Map<string, AbortController>();
+/** 路径 B：当前会话世代，防止 abort 后的旧 cache 任务误写入 */
+const progressiveGeneration = new Map<string, number>();
 
 function sparseKey(songId: number | string, quality: string): string {
   return `${songId}:${quality}`;
@@ -427,7 +434,218 @@ async function tryFinalize(
 }
 
 /**
- * 路径 B：STRM progressive — tee 流式起播，跳过稀疏 IDB，整文件写入 Cache。
+ * 路径 B 核心：单泵从上游全速 read，同时
+ * - 推给 forClient（不因 <audio> 慢读而停泵）
+ * - 在 maxBytes 内累积 cacheParts 供完整写入 Cache
+ *
+ * 关键：`<audio>` 缓冲够后常会 cancel 响应体。此时只停止向 client 推送，
+ * **不得**停上游泵，否则网络会表现为「起播后加载停缓」，且整曲无法入 Cache。
+ *
+ * 超过 maxBytes：丢弃 cache 意图；若 client 仍在读，对未消费积压做硬背压。
+ * client 已 cancel 且已 oversize：可中止上游（两边都不再需要数据）。
+ */
+export function createEagerProgressivePump(
+  source: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+  maxBytes: number = PROGRESSIVE_EAGER_MAX_BYTES,
+): {
+  forClient: ReadableStream<Uint8Array>;
+  pumpDone: Promise<{
+    totalBytes: number;
+    oversize: boolean;
+    error: unknown;
+    cacheParts: BlobPart[];
+  }>;
+} {
+  type Slot = { data: Uint8Array };
+  const slots: Array<Slot | null> = [];
+  let clientIdx = 0;
+  let closed = false;
+  let err: unknown = null;
+  let totalBytes = 0;
+  let oversize = false;
+  let clientCancelled = false;
+  const cacheParts: BlobPart[] = [];
+  const clientWaiters: Array<() => void> = [];
+  const drainWaiters: Array<() => void> = [];
+
+  const wakeClient = () => {
+    while (clientWaiters.length) clientWaiters.shift()!();
+  };
+  const wakeDrain = () => {
+    while (drainWaiters.length) drainWaiters.shift()!();
+  };
+
+  const unconsumedClientBytes = () => {
+    let n = 0;
+    for (let i = clientIdx; i < slots.length; i++) {
+      const s = slots[i];
+      if (s) n += s.data.byteLength;
+    }
+    return n;
+  };
+
+  const releaseConsumed = () => {
+    // client 已读过的 slot 置空，降低峰值（cacheParts 另持有 ref直至 oversize/写完）
+    for (let i = 0; i < clientIdx; i++) {
+      if (slots[i]) slots[i] = null;
+    }
+  };
+
+  const forClient = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      for (;;) {
+        if (err) {
+          controller.error(err);
+          return;
+        }
+        if (clientIdx < slots.length) {
+          const slot = slots[clientIdx++];
+          releaseConsumed();
+          wakeDrain();
+          if (slot) {
+            controller.enqueue(slot.data);
+            return;
+          }
+          continue;
+        }
+        if (closed) {
+          controller.close();
+          return;
+        }
+        await new Promise<void>((r) => { clientWaiters.push(r); });
+      }
+    },
+    cancel() {
+      clientCancelled = true;
+      // 释放未读 slot，避免切歌后仍占内存；上游泵继续为 Cache 拉完
+      for (let i = clientIdx; i < slots.length; i++) slots[i] = null;
+      clientIdx = slots.length;
+      wakeDrain();
+      wakeClient();
+    },
+  });
+
+  const pumpDone = (async () => {
+    const reader = source.getReader();
+    let lastLogAt = Date.now();
+    let lastLogBytes = 0;
+    let reachedEnd = false;
+    try {
+      while (!signal.aborted) {
+        // client 已走且不再缓存：无需继续占带宽
+        if (clientCancelled && oversize) break;
+
+        const { done, value } = await reader.read();
+        if (done) {
+          reachedEnd = true;
+          break;
+        }
+        if (!value || value.byteLength === 0) continue;
+
+        totalBytes += value.byteLength;
+
+        if (!oversize) {
+          if (totalBytes > maxBytes) {
+            oversize = true;
+            cacheParts.length = 0;
+            console.warn('[SW progressive] eager oversize, drop cache retention', {
+              totalBytes, maxBytes,
+            });
+            if (clientCancelled) break;
+          } else {
+            cacheParts.push(value as BlobPart);
+          }
+        }
+
+        // 仅当页面仍在消费时才入队；cancel 后只为 cache 泵
+        if (!clientCancelled) {
+          slots.push({ data: value });
+          wakeClient();
+
+          // 超限后硬背压：未消费积压不得超过 maxBytes，防止内存峰值失控
+          if (oversize) {
+            while (
+              !signal.aborted
+              && !clientCancelled
+              && unconsumedClientBytes() > maxBytes
+            ) {
+              await new Promise<void>((r) => { drainWaiters.push(r); });
+            }
+          }
+        }
+
+        const now = Date.now();
+        if (now - lastLogAt >= 2000) {
+          const dt = (now - lastLogAt) / 1000;
+          const mbps = ((totalBytes - lastLogBytes) / dt / (1024 * 1024)).toFixed(2);
+          console.log('[SW progressive pump]', {
+            totalMB: (totalBytes / (1024 * 1024)).toFixed(2),
+            mbps,
+            oversize,
+            clientCancelled,
+            clientBacklogMB: (unconsumedClientBytes() / (1024 * 1024)).toFixed(2),
+          });
+          lastLogAt = now;
+          lastLogBytes = totalBytes;
+        }
+      }
+    } catch (e) {
+      if (!signal.aborted) err = e;
+    } finally {
+      closed = true;
+      wakeClient();
+      wakeDrain();
+      try { reader.releaseLock(); } catch { /* ignore */ }
+    }
+    const incomplete = !reachedEnd || !!err || oversize;
+    return {
+      totalBytes,
+      oversize: oversize || !reachedEnd,
+      error: err,
+      cacheParts: incomplete ? [] : cacheParts.slice(),
+    };
+  })();
+
+  return { forClient, pumpDone };
+}
+
+/** @deprecated 测试兼容别名，内部改为 createEagerProgressivePump */
+export function createEagerSplitStreams(
+  source: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+  maxBytes: number = PROGRESSIVE_EAGER_MAX_BYTES,
+): {
+  forClient: ReadableStream<Uint8Array>;
+  forCache: ReadableStream<Uint8Array>;
+  pumpDone: Promise<{ totalBytes: number; oversize: boolean; error: unknown }>;
+} {
+  const { forClient, pumpDone } = createEagerProgressivePump(source, signal, maxBytes);
+  // 兼容旧测试：forCache 从 pump 结果构造只读流
+  const forCache = new ReadableStream<Uint8Array>({
+    start(controller) {
+      void pumpDone.then((r) => {
+        if (r.error) {
+          controller.error(r.error);
+          return;
+        }
+        for (const part of r.cacheParts) {
+          if (part instanceof Uint8Array) controller.enqueue(part);
+        }
+        controller.close();
+      });
+    },
+  });
+  return {
+    forClient,
+    forCache,
+    pumpDone: pumpDone.then(({ totalBytes, oversize, error }) => ({ totalBytes, oversize, error })),
+  };
+}
+
+/**
+ * 路径 B：STRM progressive — eager pump 流式起播，跳过稀疏 IDB，整文件写入 Cache。
+ * 网络侧全速拉取，不受 <audio> 缓冲背压拖慢；内存峰值超过 PROGRESSIVE_EAGER_MAX_BYTES 则只播不缓存。
  */
 export async function handleProgressiveStream(
   event: FetchEvent,
@@ -442,10 +660,17 @@ export async function handleProgressiveStream(
     const cached = await cache.match(cachePath);
     if (cached) return serveFullCacheWithRange(cached, event.request);
 
-    // 同曲只保留一路 tee，切歌/重入时取消旧流
+    // 同曲只保留一路：取消旧会话，防止 token 续签/重入造成双路
     activeProgressive.get(key)?.abort();
     const ac = new AbortController();
+    const gen = (progressiveGeneration.get(key) ?? 0) + 1;
+    progressiveGeneration.set(key, gen);
     activeProgressive.set(key, ac);
+
+    const isActiveSession = () =>
+      !ac.signal.aborted
+      && activeProgressive.get(key) === ac
+      && progressiveGeneration.get(key) === gen;
 
     const headers = new Headers(event.request.headers);
     headers.delete('Range');
@@ -455,6 +680,8 @@ export async function handleProgressiveStream(
       headers,
       credentials: event.request.credentials,
       signal: ac.signal,
+      // 提示中间层勿缓存残缺响应
+      cache: 'no-store',
     });
 
     if (!netRes.ok) {
@@ -467,20 +694,52 @@ export async function handleProgressiveStream(
     }
 
     const contentType = netRes.headers.get('Content-Type') || 'application/octet-stream';
-    const [forClient, forCache] = netRes.body.tee();
+    const contentLengthHeader = netRes.headers.get('Content-Length');
+    const declaredLength = contentLengthHeader ? Number(contentLengthHeader) : NaN;
+
+    // 已知超大：不入内存队列、不写 Cache，单路直给 <audio>
+    if (Number.isFinite(declaredLength) && declaredLength > PROGRESSIVE_EAGER_MAX_BYTES) {
+      if (activeProgressive.get(key) === ac) activeProgressive.delete(key);
+      const outHeaders = new Headers();
+      outHeaders.set('Content-Type', contentType);
+      outHeaders.set('Content-Length', String(declaredLength));
+      console.warn('[SW progressive] file too large for eager cache, stream-only', {
+        songId, quality, declaredLength,
+      });
+      return new Response(netRes.body, {
+        status: 200,
+        statusText: 'OK',
+        headers: outHeaders,
+      });
+    }
+
+    const { forClient, pumpDone } = createEagerProgressivePump(
+      netRes.body,
+      ac.signal,
+      PROGRESSIVE_EAGER_MAX_BYTES,
+    );
 
     const cacheP = (async () => {
       try {
-        const parts: BlobPart[] = [];
-        const reader = forCache.getReader();
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) parts.push(value);
+        const pumpResult = await pumpDone;
+        if (!isActiveSession()) return;
+        if (pumpResult.error || pumpResult.oversize) {
+          if (pumpResult.oversize) {
+            console.warn('[SW progressive] skip cache (oversize)', {
+              songId, quality, totalBytes: pumpResult.totalBytes,
+            });
+          }
+          return;
         }
-        if (ac.signal.aborted) return;
-        const blob = new Blob(parts, { type: contentType });
+        const blob = new Blob(pumpResult.cacheParts, { type: contentType });
         if (blob.size <= 0) return;
+        if (Number.isFinite(declaredLength) && declaredLength > 0 && blob.size !== declaredLength) {
+          console.warn('[SW progressive] size mismatch, skip cache', {
+            songId, quality, expected: declaredLength, actual: blob.size,
+          });
+          return;
+        }
+        if (!isActiveSession()) return;
         await cache.put(
           cachePath,
           new Response(blob, {
@@ -491,6 +750,8 @@ export async function handleProgressiveStream(
             },
           }),
         );
+        if (!isActiveSession()) return;
+        console.log('[SW progressive] cached', { songId, quality, size: blob.size });
         await notifyClients({ type: 'audio-cached', songId, quality });
       } catch {
         /* aborted or error */
@@ -498,13 +759,14 @@ export async function handleProgressiveStream(
         if (activeProgressive.get(key) === ac) activeProgressive.delete(key);
       }
     })();
-    event.waitUntil(cacheP);
+    event.waitUntil(Promise.all([cacheP, pumpDone.catch(() => {})]));
 
     const outHeaders = new Headers();
     outHeaders.set('Content-Type', contentType);
-    const cl = netRes.headers.get('Content-Length');
-    if (cl) outHeaders.set('Content-Length', cl);
+    if (contentLengthHeader) outHeaders.set('Content-Length', contentLengthHeader);
     // 不设置 Accept-Ranges，降低浏览器发 Range 的动机
+    // 调试标记：确认浏览器跑的是新 SW
+    outHeaders.set('X-Zhiyin-Progressive', 'eager-pump-v3');
 
     return new Response(forClient, {
       status: 200,
@@ -858,6 +1120,8 @@ export function cancelSparseFill(songId: number, quality: string): void {
     prog.abort();
     activeProgressive.delete(key);
   }
+  // 抬升世代，使任何仍在跑的旧 cache 任务 isActiveSession 失败
+  progressiveGeneration.set(key, (progressiveGeneration.get(key) ?? 0) + 1);
 }
 
 /** 供调试 / 测试导出 */
@@ -867,4 +1131,7 @@ export const __sparseTestUtils = {
   coveredBytes,
   mergeRanges,
   planFillTasks,
+  createEagerSplitStreams,
+  createEagerProgressivePump,
+  PROGRESSIVE_EAGER_MAX_BYTES,
 };

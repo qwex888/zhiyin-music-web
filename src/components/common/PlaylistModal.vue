@@ -34,7 +34,11 @@ const formatDuration = (seconds: number | null | undefined) => {
 };
 
 const playSong = (index: number) => {
-  playerStore.play(playerStore.queue[index]);
+  const song = playerStore.queue[index];
+  if (!song) return;
+  // 同曲再点无效果（store.play 也会拦截；此处避免多余调用）
+  if (playerStore.currentSong?.id === song.id) return;
+  playerStore.play(song);
 };
 
 const removeSong = (e: Event, index: number) => {

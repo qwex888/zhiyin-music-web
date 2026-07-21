@@ -165,7 +165,7 @@ const formState = reactive({
     cors_origins: [] as string[],
     login_rate_limit: 10,
     login_rate_window_secs: 300,
-    stream_token_ttl_secs: 180
+    stream_token_ttl_secs: 300
   },
   scrape: {
     metadata_format: "json" as const,

@@ -25,7 +25,7 @@ if (manifest.length > 0) {
 
 // --------------- 音频流缓存 ---------------
 // 完整 Cache → 206。
-// progressive=1（STRM）→ 路径 B tee 流式起播 + 整文件 Cache。
+// progressive=1（STRM）→ 路径 B eager pump 流式起播 + 整文件 Cache（≤100MB）。
 // 否则 → 路径 A 稀疏补洞；闲时 fill-audio-gaps 凑整首。
 const STREAM_PATH_RE = /^\/api\/stream\/(\d+)$/;
 
