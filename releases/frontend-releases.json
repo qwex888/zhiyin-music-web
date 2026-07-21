@@ -1,5 +1,26 @@
 [
   {
+    "version": "v0.6.8",
+    "published_at": "2026-07-21T05:39:07Z",
+    "summary": "2 项新功能",
+    "changes": {
+      "feature": [
+        "feat(player): 更新播放器核心逻辑和音频流处理",
+        "feat(player): 增强播放器 token 续签逻辑"
+      ],
+      "fix": [],
+      "perf": [],
+      "refactor": [],
+      "docs": [],
+      "i18n": [],
+      "build": [],
+      "ci": [],
+      "style": [],
+      "test": [],
+      "chore": []
+    }
+  },
+  {
     "version": "v0.6.7",
     "published_at": "2026-07-20T07:07:50Z",
     "summary": "1 项新功能",
