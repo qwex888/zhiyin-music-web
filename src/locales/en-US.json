@@ -346,7 +346,14 @@
     "github_star": "Star This Project",
     "github_issues": "Feedback / Report Issues",
     "github_issues_hint": "If you encounter any issues or have feature suggestions, feel free to submit them on GitHub Issues.",
-    "update_available_hint": "New version v{version} available, click to view"
+    "update_available_hint": "New version v{version} available, click to view",
+    "scrape_feature": "Online Scraping",
+    "scrape_feature_desc": "Controls whether the app may request metadata and lyrics from third-party music platforms",
+    "scrape_enabled": "Enable online scraping",
+    "scrape_enabled_desc": "Disabled by default; enabling will also turn on built-in music sources",
+    "scrape_compliance_note": "This feature calls third-party music platform APIs. Use it only for personal library maintenance under applicable laws. By enabling it, you acknowledge the risks and accept responsibility.",
+    "scrape_enabled_builtins": "Online scraping enabled, and {count} built-in sources turned on",
+    "scrape_enable_builtins_failed": "Online scraping enabled, but enabling built-in sources failed. Please retry later."
   },
   "auth": {
     "login": "Login",
@@ -509,7 +516,11 @@
     "expand_search_meta": "Expand search filters",
     "collapse_search_meta": "Collapse search filters",
     "manage_sources": "Manage Sources",
-    "no_cover_source": "No cover"
+    "no_cover_source": "No cover",
+    "disabled_title": "Online scraping is disabled",
+    "disabled_desc": "For compliance and safety, this feature is off by default. Enable it in Settings before use.",
+    "go_to_settings": "Go to Settings",
+    "disabled_toast": "Online scraping is disabled. Please enable it in Settings first."
   },
   "organize": {
     "title": "File Organizer",

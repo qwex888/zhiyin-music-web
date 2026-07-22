@@ -1,7 +1,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import { Settings, Globe, Palette, Monitor, Moon, Sun, RefreshCw, CheckCircle2, XCircle, Sliders, Save, HardDrive, Music, Shield, Plus, Trash2, Sparkles, Lock, Eye, EyeOff, KeyRound, ChevronRight, FlaskConical, FolderOpen, ArrowUpCircle, Star, MessageCircle, ExternalLink } from 'lucide-vue-next';
+import { Settings, Search, Globe, Palette, Monitor, Moon, Sun, RefreshCw, CheckCircle2, XCircle, Sliders, Save, HardDrive, Music, Shield, Plus, Trash2, Sparkles, Lock, Eye, EyeOff, KeyRound, ChevronRight, FlaskConical, FolderOpen, ArrowUpCircle, Star, MessageCircle, ExternalLink } from 'lucide-vue-next';
 import DirBrowser from '@/components/common/DirBrowser.vue';
 import { useTheme } from '@/composables/useTheme';
 import { usePlayerStore } from '@/stores/player';
@@ -12,9 +12,12 @@ import { useOfflineStore } from '@/stores/offline';
 import { clearLocalLibrary } from '@/offline/db';
 import { clearAllMediaCache } from '@/offline/media-cache';
 import { systemApi, type HealthInfo } from '@/api/system';
+import { scrapeSourcesApi } from '@/api/scrapeSources';
 import { authApi } from '@/api/auth';
 import { useToast } from '@/composables/useToast';
-import { ref, onMounted, onUnmounted, reactive, computed } from 'vue';
+import { useScrapeFeature } from '@/composables/useScrapeFeature';
+import { ref, onMounted, onUnmounted, reactive, computed, nextTick, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import type { SystemConfig, UpdateConfigParams } from '@/types/config';
 import type { ScanSnapshot } from '@/types';
 import dayjs from 'dayjs';
@@ -28,6 +31,8 @@ const authStore = useAuthStore();
 const isAdmin = computed(() => authStore.isAdmin);
 const libraryStore = useLibraryStore();
 const offlineStore = useOfflineStore();
+const { setEnabledLocal } = useScrapeFeature();
+const route = useRoute();
 
 const qualityOptions = [
   { value: 'low', short: '128k' },
@@ -168,6 +173,7 @@ const formState = reactive({
     stream_token_ttl_secs: 300
   },
   scrape: {
+    enabled: false,
     metadata_format: "json" as const,
     sidecar_for_all: false
   },
@@ -262,6 +268,34 @@ const checkHealth = async (showToast = false) => {
   }
 };
 
+
+/** 根据 URL hash 滚动到对应区块（需等 v-if 内容渲染完成） */
+const scrollToHashTarget = async (hash = route.hash) => {
+  const id = (hash || '').replace(/^#/, '');
+  if (!id) return;
+  for (let i = 0; i < 20; i++) {
+    await nextTick();
+    const el = document.getElementById(id);
+    if (el) {
+      // 主内容在 MainLayout 的 overflow-y-auto main 内滚动，不能依赖 window
+      const scroller = el.closest('main');
+      if (scroller instanceof HTMLElement) {
+        const offset = 16;
+        const top =
+          el.getBoundingClientRect().top
+          - scroller.getBoundingClientRect().top
+          + scroller.scrollTop
+          - offset;
+        scroller.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      } else {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+};
+
 const fetchConfig = async () => {
   isLoadingConfig.value = true;
   try {
@@ -279,6 +313,7 @@ const fetchConfig = async () => {
       Object.assign(formState.transcode, data.transcode);
       Object.assign(formState.web, data.web);
       if (data.scrape) Object.assign(formState.scrape, data.scrape);
+      if (typeof data.scrape?.enabled === 'boolean') setEnabledLocal(data.scrape.enabled);
 
       corsOriginsInput.value = (data.security?.cors_origins || []).join(', ');
       loggingModulesInput.value = (data.logging?.modules || []).join(', ');
@@ -290,11 +325,16 @@ const fetchConfig = async () => {
   } finally {
     isLoadingConfig.value = false;
   }
+  // 配置区块渲染后再滚到 hash 目标（如 #scrape-feature）
+  await scrollToHashTarget();
 };
 
 const saveConfig = async () => {
   isSaving.value = true;
   try {
+    const wasEnabled = Boolean(config.value?.scrape?.enabled);
+    const willEnable = Boolean(formState.scrape.enabled);
+
     const updateParams: UpdateConfigParams = {
       logging: {
         ...formState.logging,
@@ -320,8 +360,22 @@ const saveConfig = async () => {
     };
     
     await systemApi.updateConfig(updateParams);
-    toast.success(t('settings.config_saved'));
-    await fetchConfig(); // Refresh config to get updated state
+    setEnabledLocal(willEnable);
+
+    // 首次开启联网刮削时，批量启用内置源，免去用户再去源管理页手动打开
+    if (!wasEnabled && willEnable) {
+      try {
+        const { data } = await scrapeSourcesApi.enableBuiltins();
+        toast.success(t('settings.scrape_enabled_builtins', { count: data.enabled_count }));
+      } catch (e) {
+        console.error(e);
+        toast.error(t('settings.scrape_enable_builtins_failed'));
+      }
+    } else {
+      toast.success(t('settings.config_saved'));
+    }
+
+    await fetchConfig();
   } catch (e) {
     console.error(e);
     toast.error(t('common.error'));
@@ -425,6 +479,14 @@ const changePassword = async () => {
     isChangingPassword.value = false;
   }
 };
+
+
+watch(
+  () => route.hash,
+  (hash) => {
+    if (hash) void scrollToHashTarget(hash);
+  },
+);
 
 onMounted(() => {
   if (isAdmin.value) {
@@ -1238,26 +1300,29 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <!-- Experimental Features (admin only) -->
+      <!-- Experimental Features (admin only): STRM / Scrape / Sidecar 共用粘性标题栏 -->
       <section v-if="config && isAdmin" class="space-y-6">
-        <div class="flex items-center justify-between border-b border-amber-500/30 pb-2 mb-4">
-          <h3 class="text-lg font-semibold text-text-primary flex items-center gap-2">
-            <FlaskConical class="w-5 h-5 text-amber-500" />
-            {{ t('settings.experimental_title') }}
-          </h3>
-          <button
-            @click="saveConfig"
-            class="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors text-sm"
-            :class="hasConfigChanged && !isSaving
-              ? 'bg-amber-500 hover:bg-amber-600 text-white'
-              : 'bg-bg-elevate text-text-tertiary cursor-not-allowed'"
-            :disabled="isSaving || !hasConfigChanged"
-          >
-            <Save class="w-4 h-4" />
-            {{ isSaving ? t('settings.saving') : t('settings.save_changes') }}
-          </button>
+        <div class="sticky top-0 z-10 -mx-4 md:-mx-8 px-4 md:px-8 pt-2 pb-2 mb-4 bg-bg-main/95 backdrop-blur-sm border-b border-amber-500/30">
+          <div class="flex items-center justify-between max-w-5xl mx-auto">
+            <h3 class="text-lg font-semibold text-text-primary flex items-center gap-2">
+              <FlaskConical class="w-5 h-5 text-amber-500" />
+              {{ t('settings.experimental_title') }}
+            </h3>
+            <button
+              @click="saveConfig"
+              class="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors text-sm"
+              :class="hasConfigChanged && !isSaving
+                ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                : 'bg-bg-elevate text-text-tertiary cursor-not-allowed'"
+              :disabled="isSaving || !hasConfigChanged"
+            >
+              <Save class="w-4 h-4" />
+              {{ isSaving ? t('settings.saving') : t('settings.save_changes') }}
+            </button>
+          </div>
         </div>
 
+        <!-- STRM -->
         <div class="bg-amber-500/5 rounded-2xl border border-amber-500/20 p-1">
           <div class="bg-bg-surface rounded-xl p-6 space-y-4">
             <div class="flex items-start gap-3 mb-4">
@@ -1308,10 +1373,39 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-      </section>
 
-      <!-- Sidecar Metadata Settings (admin only) -->
-      <section v-if="config && isAdmin" class="space-y-6">
+        <!-- Scrape Feature Settings -->
+        <div id="scrape-feature" class="bg-amber-500/5 rounded-2xl border border-amber-500/20 p-1 scroll-mt-20 md:scroll-mt-6">
+          <div class="bg-bg-surface rounded-xl p-6 space-y-4">
+            <div class="flex items-start gap-3 mb-2">
+              <div class="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <Search class="w-4 h-4 text-amber-500" />
+              </div>
+              <div>
+                <p class="text-sm font-medium text-text-primary">{{ t('settings.scrape_feature') }}</p>
+                <p class="text-[10px] text-text-tertiary mt-0.5">{{ t('settings.scrape_feature_desc') }}</p>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between gap-4 text-sm">
+              <div class="min-w-0">
+                <label class="text-text-primary">{{ t('settings.scrape_enabled') }}</label>
+                <p class="text-[10px] text-text-tertiary mt-0.5">{{ t('settings.scrape_enabled_desc') }}</p>
+              </div>
+              <input
+                v-model="formState.scrape.enabled"
+                type="checkbox"
+                class="w-4 h-4 rounded border-border text-primary focus:ring-primary flex-shrink-0"
+              />
+            </div>
+
+            <p class="text-[11px] text-amber-600/90 dark:text-amber-400/90 leading-relaxed bg-amber-500/5 rounded-lg px-3 py-2">
+              {{ t('settings.scrape_compliance_note') }}
+            </p>
+          </div>
+        </div>
+
+        <!-- Sidecar Metadata Settings -->
         <div class="bg-amber-500/5 rounded-2xl border border-amber-500/20 p-1">
           <div class="bg-bg-surface rounded-xl p-6 space-y-4">
             <div class="flex items-start gap-3 mb-4">

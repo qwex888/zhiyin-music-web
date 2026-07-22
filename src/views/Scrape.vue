@@ -22,6 +22,8 @@ import type {
 import type { Song } from '@/types';
 import SelectableSongList from '@/components/common/SelectableSongList.vue';
 import { useScrapeSources } from '@/composables/useScrapeSources';
+import { useScrapeFeature } from '@/composables/useScrapeFeature';
+import ScrapeDisabledPanel from '@/components/common/ScrapeDisabledPanel.vue';
 import { useAuthStore } from '@/stores/auth';
 
 const router = useRouter();
@@ -39,6 +41,9 @@ const {
   getSourceMeta,
   getEnabledKeys,
 } = useScrapeSources();
+
+const { isEnabled: scrapeEnabled, isReady: scrapeFeatureReady, ensureLoaded: ensureScrapeFeature } = useScrapeFeature();
+
 
 // ── Tab ──────────────────────────────────────────────────────
 
@@ -829,6 +834,8 @@ const parseDetail = (json: string | null): Record<string, unknown> | null => {
 };
 
 onMounted(async () => {
+  await ensureScrapeFeature();
+  if (!scrapeEnabled.value) return;
   await ensureLoaded();
   searchForm.value.sources = getEnabledKeys();
   fetchAllLibrarySongs();
@@ -853,6 +860,8 @@ onUnmounted(() => {
 
 <template>
   <div class="flex flex-col h-full p-0 md:p-4 overflow-hidden animate-fade-in">
+    <ScrapeDisabledPanel v-if="scrapeFeatureReady && !scrapeEnabled" />
+    <template v-else-if="scrapeFeatureReady && scrapeEnabled">
     <!-- 页头 -->
     <header class="pt-2 md:pt-0 flex-none mb-6">
       <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -1604,6 +1613,7 @@ onUnmounted(() => {
         </div>
       </transition>
     </Teleport>
+    </template>
   </div>
 </template>
 

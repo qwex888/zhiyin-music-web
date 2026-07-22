@@ -353,7 +353,14 @@
     "github_star": "Star 支持项目",
     "github_issues": "反馈建议 / 报告问题",
     "github_issues_hint": "如果您在使用中遇到任何问题或有功能建议，欢迎前往 GitHub Issues 提交。",
-    "update_available_hint": "新版本 v{version} 可用，点击查看"
+    "update_available_hint": "新版本 v{version} 可用，点击查看",
+    "scrape_feature": "联网刮削",
+    "scrape_feature_desc": "控制是否允许向第三方音乐平台请求元数据与歌词",
+    "scrape_enabled": "启用联网刮削功能",
+    "scrape_enabled_desc": "默认关闭；开启后将自动启用内置音乐源",
+    "scrape_compliance_note": "该功能会请求第三方音乐平台接口，请仅在合法合规前提下用于个人音乐库整理。开启即表示您已知悉相关风险并自行承担责任。",
+    "scrape_enabled_builtins": "已开启联网刮削，并启用 {count} 个内置音乐源",
+    "scrape_enable_builtins_failed": "联网刮削已开启，但批量启用内置源失败，请稍后重试"
   },
   "auth": {
     "login": "登录",
@@ -516,7 +523,11 @@
     "expand_search_meta": "展开搜索条件",
     "collapse_search_meta": "收起搜索条件",
     "manage_sources": "管理音乐源",
-    "no_cover_source": "无封面"
+    "no_cover_source": "无封面",
+    "disabled_title": "联网刮削功能未启用",
+    "disabled_desc": "为合规与安全，该功能默认关闭。请前往设置开启后再使用。",
+    "go_to_settings": "前往设置开启",
+    "disabled_toast": "联网刮削功能未启用，请先在设置中开启"
   },
   "organize": {
     "title": "文件整理",

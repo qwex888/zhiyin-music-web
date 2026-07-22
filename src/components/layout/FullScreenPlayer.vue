@@ -8,6 +8,7 @@ import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, ChevronDo
 import { isStrmSong } from '@/types';
 import { musicApi } from '@/api/music';
 import { scrapeApi } from '@/api/scrape';
+import { useScrapeFeature } from '@/composables/useScrapeFeature';
 import { hasCachedAudioAnyQuality } from '@/offline/media-cache';
 import { songEvents } from '@/utils/songEvents';
 import CoverImage from '@/components/common/CoverImage.vue';
@@ -28,6 +29,7 @@ const authStore = useAuthStore();
 const { t } = useI18n();
 const router = useRouter();
 const toast = useToast();
+const { ensureLoaded: ensureScrapeFeature, isEnabled: scrapeEnabled } = useScrapeFeature();
 
 // Watch for visibility changes to lock body scroll
 watch(() => props.modelValue, (val) => {
@@ -62,8 +64,14 @@ const closeMoreMenu = () => {
   showMoreMenu.value = false;
 };
 
-const openLyricsSearch = () => {
+const openLyricsSearch = async () => {
   showMoreMenu.value = false;
+  await ensureScrapeFeature();
+  if (!scrapeEnabled.value) {
+    toast.info(t('scrape.disabled_toast'));
+    await router.push({ path: '/settings', hash: '#scrape-feature' });
+    return;
+  }
   showLyricsSearch.value = true;
 };
 
@@ -71,6 +79,12 @@ const scrapeCurrentSong = async () => {
   const song = playerStore.currentSong;
   if (!song) return;
   showMoreMenu.value = false;
+  await ensureScrapeFeature();
+  if (!scrapeEnabled.value) {
+    toast.info(t('scrape.disabled_toast'));
+    await router.push({ path: '/settings', hash: '#scrape-feature' });
+    return;
+  }
   try {
     await scrapeApi.batchCreate([song.id]);
     toast.success(t('scrape.batch_created', { count: 1 }));

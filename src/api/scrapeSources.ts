@@ -42,4 +42,10 @@ export const scrapeSourcesApi = {
     }),
 
   probeAll: () => api.post<SourceHealthSnapshot[]>('/scrape/sources/probe-all'),
+
+  /** 批量开启内置音乐源（不含 acoustid） */
+  enableBuiltins: () =>
+    api.post<{ enabled_count: number; enabled_keys: string[]; registry_version: number }>(
+      '/scrape/sources/enable-builtins',
+    ),
 };

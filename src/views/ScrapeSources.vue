@@ -7,6 +7,8 @@ import {
 } from 'lucide-vue-next';
 import { scrapeSourcesApi } from '@/api/scrapeSources';
 import { useScrapeSources } from '@/composables/useScrapeSources';
+import { useScrapeFeature } from '@/composables/useScrapeFeature';
+import ScrapeDisabledPanel from '@/components/common/ScrapeDisabledPanel.vue';
 import { useToast } from '@/composables/useToast';
 import type {
   HealthListItem,
@@ -17,6 +19,7 @@ import type {
 const { t } = useI18n();
 const toast = useToast();
 const { refresh: refreshGlobalSources } = useScrapeSources();
+const { isEnabled: scrapeEnabled, isReady: scrapeFeatureReady, ensureLoaded: ensureScrapeFeature } = useScrapeFeature();
 
 const sources = ref<ScrapeSourceListItem[]>([]);
 const healthItems = ref<HealthListItem[]>([]);
@@ -298,11 +301,17 @@ const capLabel = (item: ScrapeSourceListItem) => {
   return caps.join(' · ') || '-';
 };
 
-onMounted(fetchAll);
+onMounted(async () => {
+  await ensureScrapeFeature();
+  if (!scrapeEnabled.value) return;
+  await fetchAll();
+});
 </script>
 
 <template>
   <div class="flex flex-col h-full p-0 md:p-4 overflow-hidden animate-fade-in">
+    <ScrapeDisabledPanel v-if="scrapeFeatureReady && !scrapeEnabled" />
+    <template v-else-if="scrapeFeatureReady && scrapeEnabled">
     <header class="pt-2 md:pt-0 flex-none mb-6 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
       <div>
         <h1 class="text-2xl md:text-3xl font-bold text-text-primary tracking-tight mb-1 flex items-center gap-3">
@@ -566,6 +575,7 @@ onMounted(fetchAll);
         </div>
       </transition>
     </Teleport>
+    </template>
   </div>
 </template>
 

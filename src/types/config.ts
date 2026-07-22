@@ -77,6 +77,7 @@ export interface TranscodeConfig {
 }
 
 export interface ScrapeConfig {
+  enabled: boolean;
   metadata_format: 'json' | 'nfo';
   sidecar_for_all: boolean;
 }

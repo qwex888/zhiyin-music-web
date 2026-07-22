@@ -7,6 +7,7 @@ import { Calendar, RefreshCw } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { scrapeApi } from '@/api/scrape';
+import { useScrapeFeature } from '@/composables/useScrapeFeature';
 import { useToast } from '@/composables/useToast';
 import VirtualSongList from '@/components/common/VirtualSongList.vue';
 
@@ -14,6 +15,7 @@ const playerStore = usePlayerStore();
 const { t } = useI18n();
 const router = useRouter();
 const toast = useToast();
+const { ensureLoaded: ensureScrapeFeature, isEnabled: scrapeEnabled } = useScrapeFeature();
 const songs = ref<RecentSong[]>([]);
 const isLoading = ref(false);
 const hasError = ref(false);
@@ -46,6 +48,12 @@ const handleMenuAction = async (action: string, song: Song) => {
       toast.success(t('common.add_to_queue'));
       break;
     case 'scrape':
+      await ensureScrapeFeature();
+      if (!scrapeEnabled.value) {
+        toast.info(t('scrape.disabled_toast'));
+        router.push({ path: '/settings', hash: '#scrape-feature' });
+        break;
+      }
       try {
         await scrapeApi.batchCreate([song.id]);
         toast.success(t('scrape.batch_created', { count: 1 }));
