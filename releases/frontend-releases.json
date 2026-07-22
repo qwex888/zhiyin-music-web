@@ -1,5 +1,30 @@
 [
   {
+    "version": "v0.6.9",
+    "published_at": "2026-07-22T02:45:18Z",
+    "summary": "2 项新功能、1 项修复",
+    "changes": {
+      "feature": [
+        "feat(player): 更新播放器音频流处理逻辑",
+        "feat(scrapeSources): 添加刮削源管理功能"
+      ],
+      "fix": [
+        "fix(player): 调整热切缓冲时间常量"
+      ],
+      "perf": [],
+      "refactor": [],
+      "docs": [],
+      "i18n": [],
+      "build": [],
+      "ci": [],
+      "style": [],
+      "test": [],
+      "chore": [
+        "chore(sidebar): 注释掉刮削源菜单项"
+      ]
+    }
+  },
+  {
     "version": "v0.6.8",
     "published_at": "2026-07-21T05:39:07Z",
     "summary": "2 项新功能",
