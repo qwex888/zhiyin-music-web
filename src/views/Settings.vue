@@ -3,6 +3,7 @@
 import { useI18n } from 'vue-i18n';
 import { Settings, Search, Globe, Palette, Monitor, Moon, Sun, RefreshCw, CheckCircle2, XCircle, Sliders, Save, HardDrive, Music, Shield, Plus, Trash2, Sparkles, Lock, Eye, EyeOff, KeyRound, ChevronRight, FlaskConical, FolderOpen, ArrowUpCircle, Star, MessageCircle, ExternalLink } from 'lucide-vue-next';
 import DirBrowser from '@/components/common/DirBrowser.vue';
+import TipBanner from '@/components/common/TipBanner.vue';
 import { useTheme } from '@/composables/useTheme';
 import { usePlayerStore } from '@/stores/player';
 import { useSystemStore } from '@/stores/system';
@@ -1399,9 +1400,13 @@ onUnmounted(() => {
               />
             </div>
 
-            <p class="text-[11px] text-amber-600/90 dark:text-amber-400/90 leading-relaxed bg-amber-500/5 rounded-lg px-3 py-2">
+            <TipBanner
+              :icon="false"
+              size="sm"
+              class="rounded-lg bg-amber-500/5 leading-relaxed !text-[11px]"
+            >
               {{ t('settings.scrape_compliance_note') }}
-            </p>
+            </TipBanner>
           </div>
         </div>
 

@@ -9,6 +9,7 @@ import { Play, Clock, BarChart3, Disc, Music2, Users, Inbox, AlertCircle, Refres
 import { usePlayerStore } from '@/stores/player';
 import { useI18n } from 'vue-i18n';
 import CoverImage from '@/components/common/CoverImage.vue';
+import TipBanner from '@/components/common/TipBanner.vue';
 import dayjs from 'dayjs';
 import { useOfflineStore } from '@/stores/offline';
 import { offlineDb } from '@/offline/db';
@@ -140,10 +141,9 @@ const goViewAllRecent = () => {
     <!-- 离线视图 -->
     <template v-else-if="isOfflineView">
       <section class="space-y-4">
-        <div class="flex items-center gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-200">
-          <WifiOff class="w-5 h-5 flex-shrink-0" />
-          <span class="text-sm">{{ t('offline.currently_offline_hint') }}</span>
-        </div>
+        <TipBanner :icon="WifiOff">
+          {{ t('offline.currently_offline_hint') }}
+        </TipBanner>
 
         <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
           <div class="bg-bg-surface p-5 rounded-xl border border-border flex items-center gap-4">

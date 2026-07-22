@@ -26,6 +26,7 @@ import {
 } from '@/offline/orphan-detector';
 import { offlineDb } from '@/offline/db';
 import type { Song } from '@/types';
+import TipBanner from '@/components/common/TipBanner.vue';
 
 const { t } = useI18n();
 const offlineStore = useOfflineStore();
@@ -117,13 +118,14 @@ const handleClearAllOrphans = async () => {
       <p class="text-text-secondary text-sm mt-1">{{ t('offline.subtitle') }}</p>
     </div>
 
-    <div
+    <TipBanner
       v-if="isOffline"
-      class="flex items-start gap-3 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm"
+      :icon="CloudOff"
+      align="start"
+      class="rounded-lg border-amber-500/30"
     >
-      <CloudOff class="w-5 h-5 flex-shrink-0 mt-0.5" />
-      <p>{{ t('offline.currently_offline_hint') }}</p>
-    </div>
+      {{ t('offline.currently_offline_hint') }}
+    </TipBanner>
 
     <section class="bg-bg-surface border border-border rounded-xl p-5 space-y-4">
       <h2 class="font-semibold text-text-primary">{{ t('offline.library_section') }}</h2>

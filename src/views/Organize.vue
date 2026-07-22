@@ -11,6 +11,7 @@ import { musicApi } from '@/api/music';
 import { useToast } from '@/composables/useToast';
 import type { Song } from '@/types';
 import type { PreviewItemInput, PreviewItemOutput, OrganizeApplyResponse } from '@/types/scrape';
+import TipBanner from '@/components/common/TipBanner.vue';
 
 const { t } = useI18n();
 const toast = useToast();
@@ -490,10 +491,14 @@ onMounted(() => {
         </div>
 
         <!-- 冲突提示 -->
-        <div v-if="showPreview && conflictCount > 0" class="mb-4 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-sm">
-          <AlertTriangle class="w-4 h-4 flex-shrink-0" />
+        <TipBanner
+          v-if="showPreview && conflictCount > 0"
+          size="sm"
+          :icon="AlertTriangle"
+          class="mb-4 !py-2.5"
+        >
           {{ t('organize.preview_has_conflicts', { count: conflictCount }) }}
-        </div>
+        </TipBanner>
 
         <!-- 预览表格 -->
         <div v-if="showPreview && previewItems.length > 0" class="bg-bg-surface rounded-2xl border border-border overflow-hidden shadow-sm">
