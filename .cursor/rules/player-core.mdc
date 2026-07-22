@@ -79,10 +79,11 @@ globs:
 3. `<audio>` cancel 响应体时：**只停 client 推送，上游继续泵完并写 Cache**（否则起播后网络停缓）
 4. 内存峰值上限 `PROGRESSIVE_EAGER_MAX_BYTES`（**100MB**）：超限则只播不写 Cache；client 仍在读时对积压硬背压
 5. **跳过稀疏 IDB**；不跑 `fill-audio-gaps`
-6. 同曲仅一路：`AbortController` + `progressiveGeneration`；token 续签/重入先 abort 旧会话，旧 cache 任务不得写入
-7. 写完后 `audio-cached` → hot-swap；之后可 seek
-8. 切歌 → `cancel-audio-download` 中止并抬升世代
-9. 响应不宣告 `Accept-Ranges`；调试头 `X-Zhiyin-Progressive: eager-pump-v3`
+6. 同曲 cache 泵与播放请求解耦：token 续签 / Howl 重建再打 `progressive=1` 时，**不得 abort 正在跑的 cache 泵**，只走 playback-only 旁路
+7. 同曲仅一路 cache 泵：`AbortController` + `progressiveGeneration`；仅切歌 `cancel-audio-download` 才中止并抬升世代
+8. 写完后 `audio-cached` → hot-swap；之后可 seek
+9. 切歌 → `cancel-audio-download` 中止并抬升世代
+10. 响应不宣告 `Accept-Ranges`；调试头 `X-Zhiyin-Progressive: eager-pump-v4`（旁路为 `eager-pump-v4-play`）
 
 ### 路径选择依据
 
@@ -109,8 +110,8 @@ globs:
 
 - `stoken` TTL 默认 **300s**，期内可多次使用（配置项 `stream_token_ttl_secs`，改后需重启后端）
 - 路径 A：播放 token 与补洞 token 分离；补洞遇 401 → `need_token` 续领
-- 路径 B：eager pump 单路上游（兼缓存），勿再开第二条全量；超 100MB 只播不缓存
-- **播放路径续签**：拿到 `expires_in` 后提前约 30s 换新 token 并重建 Howl；`onloaderror` / `onplayerror` / audio `error` 时最多 3 次 401 恢复重建（保留进度）；续签重建会 abort 旧 progressive 会话
+- 路径 B：eager pump 单路上游兼缓存；token 续签不得打断该泵（playback-only 旁路）；超 100MB 只播不缓存
+- **播放路径续签**：拿到 `expires_in` 后提前约 30s 换新 token 并重建 Howl；`onloaderror` / `onplayerror` / audio `error` 时最多 3 次 401 恢复重建（保留进度）；续签重建走 playback-only，**不得** abort 同曲正在跑的 cache 泵
 - **同曲再点 play**：直接 return，禁止二次 `Howl.play` 叠实例
 
 ## Hot-Swap（双 Howl 预热 + 瞬间交接）
@@ -131,7 +132,7 @@ globs:
 1. canSeek=false → UI 禁用进度条，且 store.seek 拒绝
 2. seek 内不做网络请求
 3. STRM 未缓存走路径 B，不得误入稀疏整包缓冲
-4. 路径 B 不得与 fill-audio-gaps 并行全量下载
+4. 路径 B 不得与 fill-audio-gaps 并行全量下载；token 续签不得打断同曲 cache 泵
 5. soundGeneration / pendingPauseSource / revokeObjectUrl 规则保持不变
 6. hot-swap 与 token 续签重建互斥（`hotSwapInProgress` ↔ `tokenRenewInProgress`）
 
@@ -139,7 +140,8 @@ globs:
 
 - ❌ 路径 B 对响应 `arrayBuffer` 再交给 audio（等整首才起播）
 - ❌ 路径 B 使用裸 `tee()` 导致缓存被播放背压拖死
-- ❌ 同曲并存多路 progressive / 多 Howl 播放实例（含同曲再点 play）
+- ❌ 路径 B 因 token 续签 / 同曲重入 abort 正在跑的全量 cache 泵
+- ❌ 同曲并存多路 progressive cache 泵 / 多 Howl 播放实例（含同曲再点 play）
 - ❌ STRM 未缓存时允许拖进度条或 Media Session seek
 - ❌ 剥 Range 拉全量再喂给路径 A 的 audio
 - ❌ 路径 A 的 bgCache 再下一整首（只许补洞）

@@ -644,8 +644,46 @@ export function createEagerSplitStreams(
 }
 
 /**
+ * 路径 B 播放-only：不碰正在跑的 cache 泵。
+ * token 续签 / Howl 重建会再打 progressive=1；若 abort 旧泵，整文件 Cache 永远凑不齐。
+ */
+async function serveProgressivePlaybackOnly(
+  request: Request,
+  songId: number,
+  quality: string,
+): Promise<Response> {
+  const headers = new Headers(request.headers);
+  headers.delete('Range');
+  const netRes = await fetch(request.url, {
+    method: 'GET',
+    headers,
+    credentials: request.credentials,
+    // 跟随页面请求生命周期；取消只影响本路播放，不影响 cache 泵
+    signal: request.signal,
+    cache: 'no-store',
+  });
+  if (!netRes.ok || !netRes.body) return netRes;
+
+  const outHeaders = new Headers();
+  const contentType = netRes.headers.get('Content-Type') || 'application/octet-stream';
+  const contentLengthHeader = netRes.headers.get('Content-Length');
+  outHeaders.set('Content-Type', contentType);
+  if (contentLengthHeader) outHeaders.set('Content-Length', contentLengthHeader);
+  outHeaders.set('X-Zhiyin-Progressive', 'eager-pump-v4-play');
+  console.log('[SW progressive] playback-only (cache pump kept)', { songId, quality });
+  return new Response(netRes.body, {
+    status: 200,
+    statusText: 'OK',
+    headers: outHeaders,
+  });
+}
+
+/**
  * 路径 B：STRM progressive — eager pump 流式起播，跳过稀疏 IDB，整文件写入 Cache。
  * 网络侧全速拉取，不受 <audio> 缓冲背压拖慢；内存峰值超过 PROGRESSIVE_EAGER_MAX_BYTES 则只播不缓存。
+ *
+ * 同曲已有未完成的 cache 泵时：新请求只负责播放，绝不 abort 旧泵
+ * （否则 token 续签会反复打断全量缓存）。
  */
 export async function handleProgressiveStream(
   event: FetchEvent,
@@ -660,7 +698,13 @@ export async function handleProgressiveStream(
     const cached = await cache.match(cachePath);
     if (cached) return serveFullCacheWithRange(cached, event.request);
 
-    // 同曲只保留一路：取消旧会话，防止 token 续签/重入造成双路
+    // 同曲 cache 泵仍在跑：只开播放旁路，保住全量下载
+    const existing = activeProgressive.get(key);
+    if (existing && !existing.signal.aborted) {
+      return serveProgressivePlaybackOnly(event.request, songId, quality);
+    }
+
+    // 无活跃泵：启动「播放 + 全量 Cache」主会话
     activeProgressive.get(key)?.abort();
     const ac = new AbortController();
     const gen = (progressiveGeneration.get(key) ?? 0) + 1;
@@ -703,6 +747,7 @@ export async function handleProgressiveStream(
       const outHeaders = new Headers();
       outHeaders.set('Content-Type', contentType);
       outHeaders.set('Content-Length', String(declaredLength));
+      outHeaders.set('X-Zhiyin-Progressive', 'eager-pump-v4-stream-only');
       console.warn('[SW progressive] file too large for eager cache, stream-only', {
         songId, quality, declaredLength,
       });
@@ -722,13 +767,21 @@ export async function handleProgressiveStream(
     const cacheP = (async () => {
       try {
         const pumpResult = await pumpDone;
-        if (!isActiveSession()) return;
+        if (!isActiveSession()) {
+          console.warn('[SW progressive] skip cache (session superseded)', {
+            songId, quality, totalBytes: pumpResult.totalBytes,
+          });
+          return;
+        }
         if (pumpResult.error || pumpResult.oversize) {
-          if (pumpResult.oversize) {
-            console.warn('[SW progressive] skip cache (oversize)', {
-              songId, quality, totalBytes: pumpResult.totalBytes,
-            });
-          }
+          console.warn('[SW progressive] skip cache', {
+            songId,
+            quality,
+            totalBytes: pumpResult.totalBytes,
+            oversize: pumpResult.oversize,
+            aborted: ac.signal.aborted,
+            hasError: !!pumpResult.error,
+          });
           return;
         }
         const blob = new Blob(pumpResult.cacheParts, { type: contentType });
@@ -766,7 +819,7 @@ export async function handleProgressiveStream(
     if (contentLengthHeader) outHeaders.set('Content-Length', contentLengthHeader);
     // 不设置 Accept-Ranges，降低浏览器发 Range 的动机
     // 调试标记：确认浏览器跑的是新 SW
-    outHeaders.set('X-Zhiyin-Progressive', 'eager-pump-v3');
+    outHeaders.set('X-Zhiyin-Progressive', 'eager-pump-v4');
 
     return new Response(forClient, {
       status: 200,

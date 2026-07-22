@@ -95,10 +95,22 @@ export const usePlayerStore = defineStore('player', () => {
   /** 预热中的 blob Howl（未提交前不影响正在播放的 sound） */
   let warmupHowl: Howl | null = null;
   let warmupObjectUrl: string | null = null;
-  /** 仅当与旧流偏差超过此值才二次对齐，避免多余 seek 触发 blob 再缓冲 */
-  const HOT_SWAP_RESYNC_THRESHOLD_SEC = 0.3;
-  /** 切换前要求 buffered 至少超前这么多秒，避免「playing 但马上 underrun」 */
+  // ─────────────────────────────────────────────────────────────
+  // 【热切时序调优区】以下常量集中控制「缓存完成 → 切到 blob」的时序与间隔。
+  // 手动调优时只改这里即可，数值越小越激进（越快切、但越容易 underrun/错位）。
+  // ─────────────────────────────────────────────────────────────
+  /** 仅当新流与旧流偏差超过此值才二次对齐；调小=对齐更精准但可能多一次 seek。默认 0.12s */
+  const HOT_SWAP_RESYNC_THRESHOLD_SEC = 0.12;
+  /** 交接前要求 buffered 至少超前这么多秒，避免「playing 但马上 underrun」。调小=切得更快但更易卡顿。默认 0.4s */
   const HOT_SWAP_BUFFER_AHEAD_SEC = 0.4;
+  /** 新流起始位置相对旧流的「提前量」，补偿 play/seek 启动延迟；听到轻微重复则调大，听到跳过则调小。默认 0.12s */
+  const HOT_SWAP_START_LEAD_SEC = 0.12;
+  /** 等待新流目标位置缓冲就绪的超时；超时即放弃热切保旧流。默认 12s */
+  const HOT_SWAP_BUFFER_TIMEOUT_MS = 12_000;
+  /** 等待新流 play() 后真正出声的超时。默认 4s */
+  const HOT_SWAP_PLAYING_TIMEOUT_MS = 4_000;
+  /** 等待新流 currentTime 确实在推进的超时（确认没有卡在 seek）。默认 2.5s */
+  const HOT_SWAP_ADVANCE_TIMEOUT_MS = 2_500;
   // 在 initSound 之后赋值，供 bgCache / SW 消息调用
   let tryHotSwapToBlob: (songId: number, q: StreamQuality) => Promise<void> = async () => {};
 
@@ -989,10 +1001,11 @@ export const usePlayerStore = defineStore('player', () => {
       const targetVol = volume.value;
 
       // 只 seek 一次（未播放时），避免二次 seek 丢掉缓冲、拉出一串 blob 206
+      // 起始位置略微领先旧流，补偿 play 启动延迟，交接时更易对齐
       pendingPauseSource = 'system';
-      syncHowlCurrentTime(warmupHowl, resumeAt);
+      syncHowlCurrentTime(warmupHowl, resumeAt + HOT_SWAP_START_LEAD_SEC);
 
-      const bufferedOk = await waitForMediaBuffered(warmupHowl, resumeAt);
+      const bufferedOk = await waitForMediaBuffered(warmupHowl, resumeAt, HOT_SWAP_BUFFER_TIMEOUT_MS);
       if (
         !bufferedOk
         || soundGeneration !== startGen
@@ -1016,7 +1029,7 @@ export const usePlayerStore = defineStore('player', () => {
           cancelWarmupHowl();
           return;
         }
-        const playingOk = await waitForHowlPlaying(warmupHowl);
+        const playingOk = await waitForHowlPlaying(warmupHowl, HOT_SWAP_PLAYING_TIMEOUT_MS);
         if (
           !playingOk
           || soundGeneration !== startGen
@@ -1037,9 +1050,10 @@ export const usePlayerStore = defineStore('player', () => {
         const warmNode = (warmupHowl as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
         const warmAt = warmNode?.currentTime ?? resumeAt;
         if (Math.abs(nowAt - warmAt) > HOT_SWAP_RESYNC_THRESHOLD_SEC) {
+          // 二次对齐同样加入领先量，抵消对齐后到交接之间旧流继续前进的漂移
           pendingPauseSource = 'system';
-          syncHowlCurrentTime(warmupHowl, nowAt);
-          const reBuf = await waitForMediaBuffered(warmupHowl, nowAt);
+          syncHowlCurrentTime(warmupHowl, nowAt + HOT_SWAP_START_LEAD_SEC);
+          const reBuf = await waitForMediaBuffered(warmupHowl, nowAt, HOT_SWAP_BUFFER_TIMEOUT_MS);
           if (!reBuf || soundGeneration !== startGen || !warmupHowl) {
             cancelWarmupHowl();
             return;
@@ -1049,7 +1063,7 @@ export const usePlayerStore = defineStore('player', () => {
           resumeAt = warmAt;
         }
 
-        const advancing = await waitForPlaybackAdvancing(warmupHowl);
+        const advancing = await waitForPlaybackAdvancing(warmupHowl, HOT_SWAP_ADVANCE_TIMEOUT_MS);
         if (
           !advancing
           || soundGeneration !== startGen
