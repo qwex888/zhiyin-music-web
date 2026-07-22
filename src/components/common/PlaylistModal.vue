@@ -72,7 +72,7 @@ const { list, containerProps, wrapperProps } = useVirtualList(queue, {
       <div 
         v-if="isOpen"
         v-click-outside="close"
-        class="fixed inset-x-0 bottom-0 z-[111] bg-bg-surface border-t border-border rounded-t-2xl shadow-2xl max-h-[70vh] flex flex-col md:max-w-md md:left-auto md:right-4 md:bottom-24 md:rounded-2xl md:border"
+        class="fixed inset-x-0 bottom-0 z-[111] bg-bg-surface border-t border-border rounded-t-2xl shadow-2xl max-h-[70vh] flex flex-col md:w-[28rem] md:max-w-md md:left-auto md:right-4 md:bottom-24 md:rounded-2xl md:border"
       >
       <!-- Header -->
       <div class="p-4 border-b border-border flex items-center justify-between flex-shrink-0">
