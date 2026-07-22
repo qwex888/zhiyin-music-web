@@ -1435,6 +1435,21 @@ export const usePlayerStore = defineStore('player', () => {
     if (playing) updatePositionState();
   });
 
+  /**
+   * 「全部播放」统一入口：写入队列并起播。
+   * 随机模式且多于 1 首时随机选起播曲；顺序等模式仍从第 1 首起。
+   * 单曲点击请继续用 play(song) / setQueue + play(指定曲)。
+   */
+  const setQueueAndPlay = async (songs: Song[]) => {
+    if (songs.length === 0) return;
+    let startIndex = 0;
+    if (playMode.value === 'shuffle' && songs.length > 1) {
+      startIndex = Math.floor(Math.random() * songs.length);
+    }
+    setQueue(songs, startIndex);
+    await play(songs[startIndex]);
+  };
+
   const clearQueue = () => {
     ++soundGeneration;
     destroySound();
@@ -1505,6 +1520,7 @@ export const usePlayerStore = defineStore('player', () => {
     setVolume,
     addToQueue,
     setQueue,
+    setQueueAndPlay,
     clearQueue,
     removeOrphanSongs,
     refreshSong,

@@ -29,8 +29,7 @@ const playAll = async () => {
     toast.info(t('common.no_data'));
     return;
   }
-  playerStore.setQueue(songs.value);
-  playerStore.play(songs.value[0]);
+  await playerStore.setQueueAndPlay(songs.value);
 };
 
 const handlePlay = (song: Song) => {

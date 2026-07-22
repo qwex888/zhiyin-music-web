@@ -69,9 +69,14 @@ export function useQueueManager(
     queue.value.push(song);
   };
 
-  const setQueue = (songs: Song[]) => {
+  const setQueue = (songs: Song[], startIndex = 0) => {
     queue.value = [...songs];
-    currentIndex.value = 0;
+    if (songs.length === 0) {
+      currentIndex.value = -1;
+    } else {
+      const idx = Math.min(Math.max(0, startIndex), songs.length - 1);
+      currentIndex.value = idx;
+    }
     if (playMode.value === 'shuffle') initShufflePool();
   };
 

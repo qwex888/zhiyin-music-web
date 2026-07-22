@@ -172,8 +172,7 @@ const playSong = (song: Song) => {
 
 const playAllSongs = () => {
   if (songs.value.length > 0) {
-    playerStore.setQueue(songs.value);
-    playerStore.play(songs.value[0]);
+    void playerStore.setQueueAndPlay(songs.value);
   }
 };
 

@@ -571,5 +571,48 @@ describe('Player store 功能场景', () => {
       expect(removed).toBe(1);
       expect(store.queue.map((s) => s.id)).toEqual([100, 102]);
     });
+
+    it('setQueueAndPlay：非 shuffle 从第一首起播', async () => {
+      const store = usePlayerStore();
+      store.playMode = 'sequence';
+      const list = [localSong(200), localSong(201), localSong(202)];
+      await store.setQueueAndPlay(list);
+      await flush();
+      expect(store.queue).toHaveLength(3);
+      expect(store.currentIndex).toBe(0);
+      expect(store.currentSong?.id).toBe(200);
+    });
+
+    it('setQueueAndPlay：shuffle 按随机下标起播', async () => {
+      const store = usePlayerStore();
+      store.playMode = 'shuffle';
+      vi.spyOn(Math, 'random').mockReturnValue(0.5); // floor(0.5 * 3) = 1
+      const list = [localSong(210), localSong(211), localSong(212)];
+      await store.setQueueAndPlay(list);
+      await flush();
+      expect(store.currentIndex).toBe(1);
+      expect(store.currentSong?.id).toBe(211);
+      vi.restoreAllMocks();
+    });
+
+    it('setQueueAndPlay：shuffle 单曲队列仍播该曲', async () => {
+      const store = usePlayerStore();
+      store.playMode = 'shuffle';
+      const rand = vi.spyOn(Math, 'random');
+      await store.setQueueAndPlay([localSong(220)]);
+      await flush();
+      expect(store.currentIndex).toBe(0);
+      expect(store.currentSong?.id).toBe(220);
+      expect(rand).not.toHaveBeenCalled();
+      vi.restoreAllMocks();
+    });
+
+    it('setQueueAndPlay：空队列为 no-op', async () => {
+      const store = usePlayerStore();
+      store.playMode = 'shuffle';
+      await store.setQueueAndPlay([]);
+      expect(store.queue).toHaveLength(0);
+      expect(store.currentSong).toBeNull();
+    });
   });
 });

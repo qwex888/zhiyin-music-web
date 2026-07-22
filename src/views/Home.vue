@@ -98,10 +98,7 @@ const playSong = (song: Song) => {
 
 const playAllRecommendations = () => {
   if (recommendations.value.length > 0) {
-    // 1. Add all songs to queue
-    playerStore.setQueue(recommendations.value);
-    // 2. Play the first one
-    playerStore.play(recommendations.value[0]);
+    void playerStore.setQueueAndPlay(recommendations.value);
   }
 };
 
