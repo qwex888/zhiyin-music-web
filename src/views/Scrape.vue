@@ -865,11 +865,11 @@ onUnmounted(() => {
             {{ t('scrape.subtitle') }}
           </p>
         </div>
-        <button v-if="authStore.isAdmin" @click="goManageSources"
+        <!-- <button v-if="authStore.isAdmin" @click="goManageSources"
           class="flex items-center gap-2 px-3 py-2 rounded-xl text-sm border border-border hover:border-primary/30 text-text-secondary hover:text-primary transition-colors">
           <Tag class="w-4 h-4" />
           {{ t('scrape.manage_sources') }}
-        </button>
+        </button> -->
       </div>
     </header>
 

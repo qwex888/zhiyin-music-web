@@ -44,7 +44,7 @@ const menuItems = computed((): MenuItem[] => {
     items.push(
       { name: t('nav.stats'), path: '/stats', icon: BarChart2 },
       { name: t('nav.scrape'), path: '/scrape', icon: Search, experimental: true },
-      { name: t('nav.scrape_sources'), path: '/settings/scrape-sources', icon: Database, experimental: true },
+      // { name: t('nav.scrape_sources'), path: '/settings/scrape-sources', icon: Database, experimental: true },
       { name: t('nav.organize'), path: '/organize', icon: FolderTree, experimental: true },
       { name: t('nav.users'), path: '/users', icon: Shield },
     );
