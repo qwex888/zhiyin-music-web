@@ -102,7 +102,7 @@ export const usePlayerStore = defineStore('player', () => {
   /** 仅当新流与旧流偏差超过此值才二次对齐；调小=对齐更精准但可能多一次 seek。默认 0.12s */
   const HOT_SWAP_RESYNC_THRESHOLD_SEC = 0.12;
   /** 交接前要求 buffered 至少超前这么多秒，避免「playing 但马上 underrun」。调小=切得更快但更易卡顿。默认 0.4s */
-  const HOT_SWAP_BUFFER_AHEAD_SEC = 0.4;
+  const HOT_SWAP_BUFFER_AHEAD_SEC = 0.7;
   /** 新流起始位置相对旧流的「提前量」，补偿 play/seek 启动延迟；听到轻微重复则调大，听到跳过则调小。默认 0.12s */
   const HOT_SWAP_START_LEAD_SEC = 0.12;
   /** 等待新流目标位置缓冲就绪的超时；超时即放弃热切保旧流。默认 12s */
