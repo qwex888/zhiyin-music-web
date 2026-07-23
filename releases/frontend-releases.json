@@ -1,5 +1,29 @@
 [
   {
+    "version": "v0.7.0",
+    "published_at": "2026-07-23T08:11:49Z",
+    "summary": "3 项新功能、1 项修复",
+    "changes": {
+      "feature": [
+        "feat(components): 使用 TipBanner 组件替换离线提示，改善浅色模式下的显示问题。",
+        "feat(scrape): 添加联网刮削功能及相关配置",
+        "feat(player): 添加 setQueueAndPlay 方法并更新随机播放逻辑"
+      ],
+      "fix": [
+        "fix(playlistModal): 调整播放列表模态框宽度"
+      ],
+      "perf": [],
+      "refactor": [],
+      "docs": [],
+      "i18n": [],
+      "build": [],
+      "ci": [],
+      "style": [],
+      "test": [],
+      "chore": []
+    }
+  },
+  {
     "version": "v0.6.9",
     "published_at": "2026-07-22T02:45:18Z",
     "summary": "2 项新功能、1 项修复",

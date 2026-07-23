@@ -1,23 +1,19 @@
 # Release notes
 
 ## 🆕 Features
-* feat(player): 更新播放器音频流处理逻辑 @qwex888
-* feat(scrapeSources): 添加刮削源管理功能 @qwex888
+* feat(components): 使用 TipBanner 组件替换离线提示，改善浅色模式下的显示问题。 @qwex888
+* feat(scrape): 添加联网刮削功能及相关配置 @qwex888
+* feat(player): 添加 setQueueAndPlay 方法并更新随机播放逻辑 @qwex888
 
 ## 🐛 Bug Fixes
-* fix(player): 调整热切缓冲时间常量 @qwex888
-
-## 🔨 Chore
-* chore(sidebar): 注释掉刮削源菜单项 @qwex888
+* fix(playlistModal): 调整播放列表模态框宽度 @qwex888
 
 # 更新日志
 
 ## 🆕 新特性
-* feat(player): 更新播放器音频流处理逻辑 @qwex888
-* feat(scrapeSources): 添加刮削源管理功能 @qwex888
+* feat(components): 使用 TipBanner 组件替换离线提示，改善浅色模式下的显示问题。 @qwex888
+* feat(scrape): 添加联网刮削功能及相关配置 @qwex888
+* feat(player): 添加 setQueueAndPlay 方法并更新随机播放逻辑 @qwex888
 
 ## 🐛 Bug Fixes
-* fix(player): 调整热切缓冲时间常量 @qwex888
-
-## 🔨 杂项
-* chore(sidebar): 注释掉刮削源菜单项 @qwex888
+* fix(playlistModal): 调整播放列表模态框宽度 @qwex888
