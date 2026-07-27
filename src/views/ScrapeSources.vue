@@ -41,7 +41,32 @@ const editModal = reactive({
   color: '',
   template_json: '',
   is_builtin: false,
+  driver_key: '' as string,
+  lrcapi_base_url: '',
+  lrcapi_auth: '',
 });
+
+const isLrcApiSource = computed(
+  () => editModal.key === 'lrcapi' || editModal.driver_key === 'lrcapi',
+);
+
+const parseLrcApiConfig = (json: string | null | undefined) => {
+  try {
+    const obj = JSON.parse(json || '{}') as { base_url?: string; auth?: string };
+    return {
+      base_url: obj.base_url ?? '',
+      auth: obj.auth ?? '',
+    };
+  } catch {
+    return { base_url: '', auth: '' };
+  }
+};
+
+const buildLrcApiTemplateJson = () =>
+  JSON.stringify({
+    base_url: editModal.lrcapi_base_url.trim(),
+    auth: editModal.lrcapi_auth.trim(),
+  });
 
 const fetchAll = async () => {
   isLoading.value = true;
@@ -121,6 +146,9 @@ const openCreate = () => {
     },
   }, null, 2);
   editModal.is_builtin = false;
+  editModal.driver_key = '';
+  editModal.lrcapi_base_url = '';
+  editModal.lrcapi_auth = '';
 };
 
 const openEdit = async (item: ScrapeSourceListItem) => {
@@ -136,6 +164,10 @@ const openEdit = async (item: ScrapeSourceListItem) => {
     editModal.color = data.color ?? '';
     editModal.template_json = data.template_json ?? '';
     editModal.is_builtin = data.is_builtin;
+    editModal.driver_key = data.driver_key ?? '';
+    const lrc = parseLrcApiConfig(data.template_json);
+    editModal.lrcapi_base_url = lrc.base_url;
+    editModal.lrcapi_auth = lrc.auth;
   } catch {
     toast.error(t('common.error'));
   }
@@ -180,7 +212,13 @@ const saveEdit = async () => {
         timeout_secs: timeout,
         color: editModal.color || null,
       };
-      if (!editModal.is_builtin) {
+      if (isLrcApiSource.value) {
+        if (editModal.enabled && !editModal.lrcapi_base_url.trim()) {
+          toast.error(t('scrape_sources.lrcapi_base_url_required'));
+          return;
+        }
+        payload.template_json = buildLrcApiTemplateJson();
+      } else if (!editModal.is_builtin) {
         JSON.parse(editModal.template_json);
         payload.template_json = editModal.template_json;
       }
@@ -475,7 +513,30 @@ onMounted(async () => {
               <input v-model="editModal.enabled" type="checkbox" class="rounded border-border text-primary" />
               {{ t('scrape_sources.field_enabled') }}
             </label>
-            <div v-if="!editModal.is_builtin">
+            <div v-if="isLrcApiSource" class="space-y-3">
+              <div class="p-3 rounded-xl border border-primary/20 bg-primary/5">
+                <div class="flex items-center gap-2 text-xs font-medium text-text-primary">
+                  <Info class="w-4 h-4 text-primary shrink-0" />
+                  {{ t('scrape_sources.lrcapi_guide_title') }}
+                </div>
+                <p class="mt-1.5 text-[11px] leading-relaxed text-text-secondary">
+                  {{ t('scrape_sources.lrcapi_guide_desc') }}
+                </p>
+              </div>
+              <div>
+                <label class="block text-xs text-text-secondary mb-1">{{ t('scrape_sources.field_lrcapi_base_url') }}</label>
+                <input v-model="editModal.lrcapi_base_url" type="url"
+                  :placeholder="t('scrape_sources.lrcapi_base_url_hint')"
+                  class="w-full p-2 bg-bg-elevate rounded-lg border border-border text-sm font-mono" />
+              </div>
+              <div>
+                <label class="block text-xs text-text-secondary mb-1">{{ t('scrape_sources.field_lrcapi_auth') }}</label>
+                <input v-model="editModal.lrcapi_auth" type="text"
+                  :placeholder="t('scrape_sources.lrcapi_auth_hint')"
+                  class="w-full p-2 bg-bg-elevate rounded-lg border border-border text-sm font-mono" />
+              </div>
+            </div>
+            <div v-else-if="!editModal.is_builtin">
               <div class="mb-3 p-3 rounded-xl border border-primary/20 bg-primary/5">
                 <div class="flex items-center gap-2 text-xs font-medium text-text-primary">
                   <Info class="w-4 h-4 text-primary shrink-0" />

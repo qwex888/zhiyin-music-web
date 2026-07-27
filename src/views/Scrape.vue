@@ -3,7 +3,7 @@ import { useI18n } from 'vue-i18n';
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
-  Search, ChevronDown, ChevronUp, Music2, CheckCircle2, Clock, AlertCircle, Play, Filter,
+  Search, ChevronDown, ChevronUp, CheckCircle2, Clock, AlertCircle, Play, Filter,
   Eye, RefreshCw, X, FileText, Tag, Library, Zap, ScrollText, XCircle, Trash2,
 } from 'lucide-vue-next';
 import { scrapeApi } from '@/api/scrape';
@@ -24,6 +24,7 @@ import SelectableSongList from '@/components/common/SelectableSongList.vue';
 import { useScrapeSources } from '@/composables/useScrapeSources';
 import { useScrapeFeature } from '@/composables/useScrapeFeature';
 import ScrapeDisabledPanel from '@/components/common/ScrapeDisabledPanel.vue';
+import CoverImage from '@/components/common/CoverImage.vue';
 import { useAuthStore } from '@/stores/auth';
 
 const router = useRouter();
@@ -1239,12 +1240,12 @@ onUnmounted(() => {
                         class="bg-bg-main rounded-xl border border-border p-3 space-y-2 hover:border-primary/20 transition-colors">
                         <div class="flex items-start gap-3">
                           <div class="w-12 h-12 rounded-lg bg-bg-elevate overflow-hidden flex-shrink-0">
-                            <img v-if="candidate.album_img" :src="candidate.album_img" :alt="candidate.title"
-                              class="w-full h-full object-cover" loading="lazy"
-                              @error="($event.target as HTMLImageElement).style.display = 'none'" />
-                            <div v-else class="w-full h-full flex items-center justify-center text-text-tertiary">
-                              <Music2 class="w-5 h-5" />
-                            </div>
+                            <CoverImage
+                              :src="candidate.album_img"
+                              :alt="candidate.title"
+                              size="thumb"
+                              lazy
+                            />
                           </div>
 
                           <div class="flex-1 min-w-0">

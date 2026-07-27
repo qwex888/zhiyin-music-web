@@ -4,7 +4,10 @@ import { Music2 } from 'lucide-vue-next';
 import { useCoverUrl } from '@/composables/useCoverUrl';
 
 const props = withDefaults(defineProps<{
+  /** 本地封面 ID（走 /api/covers/{id}） */
   coverId?: number | null;
+  /** 外部图片 URL；与 coverId 同时存在时优先用 src */
+  src?: string | null;
   size?: 'thumb' | 'small' | 'medium' | 'large';
   imgClass?: string;
   lazy?: boolean;
@@ -17,11 +20,14 @@ const props = withDefaults(defineProps<{
 });
 
 type CoverState = 'idle' | 'loading' | 'loaded' | 'error';
-const state = ref<CoverState>(props.coverId ? 'loading' : 'idle');
 
-const { displayUrl } = useCoverUrl(() => props.coverId);
-const coverUrl = computed(() => displayUrl.value);
-const hasValidCover = computed(() => !!props.coverId);
+const hasExternalSrc = computed(() => !!props.src);
+const hasValidCover = computed(() => hasExternalSrc.value || !!props.coverId);
+
+const state = ref<CoverState>(hasValidCover.value ? 'loading' : 'idle');
+
+const { displayUrl } = useCoverUrl(() => (hasExternalSrc.value ? null : props.coverId));
+const coverUrl = computed(() => (hasExternalSrc.value ? (props.src || '') : displayUrl.value));
 
 const handleLoad = (e: Event) => {
   const img = e.target as HTMLImageElement;
@@ -35,9 +41,12 @@ const handleError = (e: Event) => {
   state.value = 'error';
 };
 
-watch(() => props.coverId, (id) => {
-  state.value = id ? 'loading' : 'idle';
-});
+watch(
+  () => [props.src, props.coverId] as const,
+  () => {
+    state.value = hasValidCover.value ? 'loading' : 'idle';
+  },
+);
 </script>
 
 <template>
