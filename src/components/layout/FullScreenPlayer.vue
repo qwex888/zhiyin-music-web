@@ -13,6 +13,7 @@ import { hasCachedAudioAnyQuality } from '@/offline/media-cache';
 import { songEvents } from '@/utils/songEvents';
 import CoverImage from '@/components/common/CoverImage.vue';
 import LyricsSearchModal from '@/components/common/LyricsSearchModal.vue';
+import AddToPlaylistModal from '@/components/common/AddToPlaylistModal.vue';
 import { useToast } from '@/composables/useToast';
 
 const props = defineProps<{
@@ -52,6 +53,7 @@ const close = () => {
 
 const showMoreMenu = ref(false);
 const showLyricsSearch = ref(false);
+const showAddToPlaylist = ref(false);
 
 const isCurrentCached = ref(false);
 const checkCached = async () => {
@@ -73,6 +75,12 @@ const openLyricsSearch = async () => {
     return;
   }
   showLyricsSearch.value = true;
+};
+
+const openAddToPlaylist = () => {
+  if (!playerStore.currentSong) return;
+  showMoreMenu.value = false;
+  showAddToPlaylist.value = true;
 };
 
 const scrapeCurrentSong = async () => {
@@ -511,6 +519,13 @@ const seekToLyric = (time: number) => {
                 @click.stop
               >
                 <button
+                  @click="openAddToPlaylist"
+                  class="flex items-center gap-3 w-full px-4 py-3 text-sm text-text-primary hover:bg-bg-elevate transition-colors"
+                >
+                  <ListMusic class="w-4 h-4" />
+                  <span>{{ t('songs.actions.add_to_playlist') }}</span>
+                </button>
+                <button
                   v-if="authStore.isAdmin"
                   @click="scrapeCurrentSong"
                   class="flex items-center gap-3 w-full px-4 py-3 text-sm text-text-primary hover:bg-bg-elevate transition-colors"
@@ -771,6 +786,10 @@ const seekToLyric = (time: number) => {
     :song-artist="playerStore.currentSong?.artist_name"
     :song-album="playerStore.currentSong?.album ?? playerStore.currentSong?.album_name"
     :song-duration="playerStore.currentSong?.duration_secs"
+  />
+  <AddToPlaylistModal
+    v-model="showAddToPlaylist"
+    :song-ids="playerStore.currentSong ? [playerStore.currentSong.id] : []"
   />
 </template>
 

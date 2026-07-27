@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import GithubIcon from '@/components/common/GithubIcon.vue';
-import { Home, Library, Disc, Mic2, History, Settings, ChevronLeft, BarChart2, LogOut, Search, FolderTree, HardDrive, Sun, Moon, Shield, Database } from 'lucide-vue-next';
+import { Home, Library, Disc, Mic2, History, ListMusic, Settings, ChevronLeft, BarChart2, LogOut, Search, FolderTree, HardDrive, Sun, Moon, Shield, Database } from 'lucide-vue-next';
 import { useTheme } from '@/composables/useTheme';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -19,7 +19,7 @@ const isCollapsed = ref(false);
 const { isOffline } = useAppConnectivity();
 const { theme, toggleTheme } = useTheme();
 
-const onlineOnlyPaths = new Set(['/history', '/stats', '/scrape', '/organize', '/settings', '/settings/scrape-sources']);
+const onlineOnlyPaths = new Set(['/history', '/playlists', '/stats', '/scrape', '/organize', '/settings', '/settings/scrape-sources']);
 
 const toggleSidebar = () => {
   isCollapsed.value = !isCollapsed.value;
@@ -39,6 +39,7 @@ const menuItems = computed((): MenuItem[] => {
     { name: t('nav.albums'), path: '/albums', icon: Disc },
     { name: t('nav.artists'), path: '/artists', icon: Mic2 },
     { name: t('nav.history'), path: '/history', icon: History },
+    { name: t('nav.playlists'), path: '/playlists', icon: ListMusic },
   ];
   if (authStore.isAdmin) {
     items.push(
@@ -87,7 +88,7 @@ const menuItems = computed((): MenuItem[] => {
               :class="[
                 isOffline && onlineOnlyPaths.has(item.path)
                   ? 'text-text-tertiary cursor-not-allowed opacity-40'
-                  : route.path === item.path
+                  : route.path === item.path || (item.path !== '/' && route.path.startsWith(item.path + '/'))
                     ? 'bg-primary/10 text-primary'
                     : 'text-text-secondary hover:bg-bg-elevate hover:text-text-primary',
                 isCollapsed ? 'justify-center px-2' : 'px-4'

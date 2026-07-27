@@ -13,6 +13,7 @@ import { useScrapeFeature } from '@/composables/useScrapeFeature';
 import { useToast } from '@/composables/useToast';
 import VirtualSongList from '@/components/common/VirtualSongList.vue';
 import LyricsSearchModal from '@/components/common/LyricsSearchModal.vue';
+import AddToPlaylistModal from '@/components/common/AddToPlaylistModal.vue';
 
 const playerStore = usePlayerStore();
 const libraryStore = useLibraryStore();
@@ -187,6 +188,10 @@ const handleMenuAction = async (action: string, song: Song) => {
       playerStore.addToQueue(song);
       toast.success(t('common.add_to_queue'));
       break;
+    case 'addToPlaylist':
+      addToPlaylistIds.value = [song.id];
+      showAddToPlaylist.value = true;
+      break;
     case 'scrape':
       await ensureScrapeFeature();
       if (!scrapeEnabled.value) {
@@ -219,6 +224,8 @@ const handleMenuAction = async (action: string, song: Song) => {
 
 const showLyricsSearch = ref(false);
 const lyricsSearchTarget = ref<Song | null>(null);
+const showAddToPlaylist = ref(false);
+const addToPlaylistIds = ref<number[]>([]);
 
 const closeMenus = () => {
   showSortMenu.value = false;
@@ -374,5 +381,6 @@ onMounted(() => {
     :song-album="lyricsSearchTarget?.album ?? lyricsSearchTarget?.album_name"
     :song-duration="lyricsSearchTarget?.duration_secs"
   />
+  <AddToPlaylistModal v-model="showAddToPlaylist" :song-ids="addToPlaylistIds" />
 </div>
 </template>

@@ -1,18 +1,20 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { usePlayerStore } from '@/stores/player';
-import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, Volume2, Music2, ListMusic, List, Maximize2, Cloud, Loader2 } from 'lucide-vue-next';
+import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, Volume2, Music2, ListMusic, List, Maximize2, Cloud, Loader2, ListPlus } from 'lucide-vue-next';
 import { isStrmSong } from '@/types';
 import { hasCachedAudioAnyQuality } from '@/offline/media-cache';
 import CoverImage from '@/components/common/CoverImage.vue';
 import { useI18n } from 'vue-i18n';
 import PlaylistModal from '@/components/common/PlaylistModal.vue';
 import FullScreenPlayer from '@/components/layout/FullScreenPlayer.vue';
+import AddToPlaylistModal from '@/components/common/AddToPlaylistModal.vue';
 
 const playerStore = usePlayerStore();
 const { t } = useI18n();
 const showPlaylist = ref(false);
 const showFullScreen = ref(false);
+const showAddToPlaylist = ref(false);
 const isCurrentCached = ref(false);
 
 const checkCached = async () => {
@@ -106,6 +108,12 @@ const toggleQuality = () => {
   const idx = qualityOptions.indexOf(playerStore.quality);
   playerStore.quality = qualityOptions[(idx + 1) % qualityOptions.length];
 };
+
+const openAddToPlaylist = (e: Event) => {
+  e.stopPropagation();
+  if (!playerStore.currentSong) return;
+  showAddToPlaylist.value = true;
+};
 </script>
 
 <template>
@@ -159,6 +167,14 @@ const toggleQuality = () => {
          </div>
          <div class="text-xs text-text-secondary truncate">{{ playerStore.currentSong.artist }}</div>
        </div>
+       <button
+         v-if="playerStore.currentSong"
+         class="hidden md:flex p-2 text-text-secondary hover:text-primary transition-colors rounded-full hover:bg-bg-elevate flex-shrink-0"
+         :title="t('songs.actions.add_to_playlist')"
+         @click="openAddToPlaylist"
+       >
+         <ListPlus class="w-4 h-4" />
+       </button>
      </div>
 
     <!-- 播放控制 -->
@@ -276,5 +292,9 @@ const toggleQuality = () => {
 
     <PlaylistModal v-model="showPlaylist" />
     <FullScreenPlayer v-model="showFullScreen" @open-playlist="showPlaylist = true" />
+    <AddToPlaylistModal
+      v-model="showAddToPlaylist"
+      :song-ids="playerStore.currentSong ? [playerStore.currentSong.id] : []"
+    />
   </div>
 </template>

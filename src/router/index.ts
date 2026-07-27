@@ -49,6 +49,18 @@ const router = createRouter({
       meta: { onlineOnly: true },
     },
     {
+      path: '/playlists',
+      name: 'Playlists',
+      component: () => import('@/views/Playlists.vue'),
+      meta: { onlineOnly: true },
+    },
+    {
+      path: '/playlists/:id',
+      name: 'PlaylistDetail',
+      component: () => import('@/views/PlaylistDetail.vue'),
+      meta: { onlineOnly: true },
+    },
+    {
       path: '/settings',
       name: 'Settings',
       component: () => import('@/views/Settings.vue'),

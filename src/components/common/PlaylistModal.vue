@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useI18n } from 'vue-i18n';
-import { X, Play, Music2, Trash2, Cloud } from 'lucide-vue-next';
+import { X, Play, Music2, Trash2, Cloud, ListPlus } from 'lucide-vue-next';
 import { isStrmSong } from '@/types';
 import { useVirtualList } from '@vueuse/core';
+import AddToPlaylistModal from '@/components/common/AddToPlaylistModal.vue';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -16,6 +17,8 @@ const emit = defineEmits<{
 
 const playerStore = usePlayerStore();
 const { t } = useI18n();
+const showAddToPlaylist = ref(false);
+const addToPlaylistIds = ref<number[]>([]);
 
 const isOpen = computed({
   get: () => props.modelValue,
@@ -46,6 +49,12 @@ const removeSong = (e: Event, index: number) => {
   playerStore.queue.splice(index, 1);
 };
 
+const addSongToPlaylist = (e: Event, songId: number) => {
+  e.stopPropagation();
+  addToPlaylistIds.value = [songId];
+  showAddToPlaylist.value = true;
+};
+
 const clearQueue = () => {
   playerStore.queue = [];
   close();
@@ -72,8 +81,12 @@ const { list, containerProps, wrapperProps } = useVirtualList(queue, {
       <div 
         v-if="isOpen"
         v-click-outside="close"
-        class="fixed inset-x-0 bottom-0 z-[111] bg-bg-surface border-t border-border rounded-t-2xl shadow-2xl max-h-[70vh] flex flex-col md:w-[28rem] md:max-w-md md:left-auto md:right-4 md:bottom-24 md:rounded-2xl md:border"
+        class="fixed inset-x-0 bottom-0 z-[111] bg-bg-surface border-t border-border rounded-t-2xl shadow-2xl h-[85vh] max-h-[85vh] flex flex-col md:h-auto md:max-h-[70vh] md:w-[28rem] md:max-w-md md:left-auto md:right-4 md:bottom-24 md:rounded-2xl md:border"
       >
+      <!-- 移动端拖拽指示条 -->
+      <div class="md:hidden flex justify-center pt-2 pb-1 flex-shrink-0">
+        <div class="w-10 h-1 rounded-full bg-text-tertiary/30"></div>
+      </div>
       <!-- Header -->
       <div class="p-4 border-b border-border flex items-center justify-between flex-shrink-0">
         <div class="flex items-center gap-2">
@@ -140,6 +153,14 @@ const { list, containerProps, wrapperProps } = useVirtualList(queue, {
             <div class="text-xs text-text-tertiary font-mono">
               {{ formatDuration(song.duration_secs) }}
             </div>
+
+            <button
+              @click="(e) => addSongToPlaylist(e, song.id)"
+              class="p-1.5 text-text-tertiary hover:text-primary opacity-0 group-hover:opacity-100 transition-all"
+              :title="t('songs.actions.add_to_playlist')"
+            >
+              <ListPlus class="w-3.5 h-3.5" />
+            </button>
             
             <!-- Remove -->
             <button 
@@ -160,6 +181,7 @@ const { list, containerProps, wrapperProps } = useVirtualList(queue, {
       </div>
     </div>
   </transition>
+  <AddToPlaylistModal v-model="showAddToPlaylist" :song-ids="addToPlaylistIds" />
   </Teleport>
 </template>
 

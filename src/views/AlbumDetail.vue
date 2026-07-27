@@ -9,6 +9,7 @@ import { usePlayerStore } from '@/stores/player';
 import { useToast } from '@/composables/useToast';
 import CoverImage from '@/components/common/CoverImage.vue';
 import VirtualSongList from '@/components/common/VirtualSongList.vue';
+import AddToPlaylistModal from '@/components/common/AddToPlaylistModal.vue';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -19,6 +20,8 @@ const toast = useToast();
 const album = ref<Album | null>(null);
 const songs = ref<Song[]>([]);
 const isLoading = ref(true);
+const showAddToPlaylist = ref(false);
+const addToPlaylistIds = ref<number[]>([]);
 
 const goBack = () => {
   router.back();
@@ -45,6 +48,10 @@ const handleMenuAction = (action: string, song: Song) => {
     case 'addToQueue':
       playerStore.addToQueue(song);
       toast.success(t('common.add_to_queue'));
+      break;
+    case 'addToPlaylist':
+      addToPlaylistIds.value = [song.id];
+      showAddToPlaylist.value = true;
       break;
     case 'viewDetails':
       router.push(`/songs/${song.id}`);
@@ -136,5 +143,6 @@ onMounted(() => {
         />
       </div>
     </template>
+    <AddToPlaylistModal v-model="showAddToPlaylist" :song-ids="addToPlaylistIds" />
   </div>
 </template>

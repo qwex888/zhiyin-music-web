@@ -10,6 +10,7 @@ import { scrapeApi } from '@/api/scrape';
 import { useScrapeFeature } from '@/composables/useScrapeFeature';
 import { useToast } from '@/composables/useToast';
 import VirtualSongList from '@/components/common/VirtualSongList.vue';
+import AddToPlaylistModal from '@/components/common/AddToPlaylistModal.vue';
 
 const playerStore = usePlayerStore();
 const { t } = useI18n();
@@ -19,6 +20,8 @@ const { ensureLoaded: ensureScrapeFeature, isEnabled: scrapeEnabled } = useScrap
 const songs = ref<RecentSong[]>([]);
 const isLoading = ref(false);
 const hasError = ref(false);
+const showAddToPlaylist = ref(false);
+const addToPlaylistIds = ref<number[]>([]);
 
 const fetchHistory = async () => {
   isLoading.value = true;
@@ -46,6 +49,10 @@ const handleMenuAction = async (action: string, song: Song) => {
     case 'addToQueue':
       playerStore.addToQueue(song);
       toast.success(t('common.add_to_queue'));
+      break;
+    case 'addToPlaylist':
+      addToPlaylistIds.value = [song.id];
+      showAddToPlaylist.value = true;
       break;
     case 'scrape':
       await ensureScrapeFeature();
@@ -102,5 +109,6 @@ onMounted(() => {
         @menu-action="handleMenuAction"
       />
     </div>
+    <AddToPlaylistModal v-model="showAddToPlaylist" :song-ids="addToPlaylistIds" />
   </div>
 </template>
