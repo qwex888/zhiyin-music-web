@@ -70,7 +70,7 @@ const getArtistName = (song: Song) => {
 <template>
   <div class="flex flex-col h-full bg-bg-surface/50 border border-border rounded-xl overflow-hidden backdrop-blur-sm">
     <!-- Table Header -->
-    <div class="grid gap-3 grid-cols-[36px_1fr_52px] md:gap-4 md:grid-cols-[36px_minmax(200px,5fr)_minmax(150px,3fr)_64px] p-3 md:p-4 text-sm font-medium text-text-secondary border-b border-border bg-bg-surface/80 z-10">
+    <div class="grid gap-3 grid-cols-[36px_1fr_52px] md:gap-4 md:grid-cols-[36px_minmax(200px,5fr)_minmax(150px,3fr)_64px] px-2 py-3 md:p-4 text-sm font-medium text-text-secondary border-b border-border bg-bg-surface/80 z-10">
       <div class="flex justify-center">
         <input
           type="checkbox"

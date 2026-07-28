@@ -901,7 +901,7 @@ onUnmounted(() => {
           </p>
         </div>
         <button v-if="authStore.isAdmin" @click="goManageSources"
-          class="flex items-center gap-2 px-3 py-2 rounded-xl text-sm border border-border hover:border-primary/30 text-text-secondary hover:text-primary transition-colors">
+          class="flex justify-center items-center gap-2 px-3 py-2 rounded-xl text-sm border border-border hover:border-primary/30 text-text-secondary hover:text-primary transition-colors">
           <Tag class="w-4 h-4" />
           {{ t('scrape.manage_sources') }}
         </button>
@@ -909,19 +909,19 @@ onUnmounted(() => {
     </header>
 
     <!-- Tab 切换 -->
-    <div class="flex-none flex items-center gap-1 mb-5 border-b border-border">
+    <div class="flex-none justify-center md:justify-start flex items-center gap-1 mb-5 border-b border-border">
       <button @click="activeTab = 'library'"
         class="flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px" :class="activeTab === 'library'
           ? 'text-primary border-primary'
           : 'text-text-secondary border-transparent hover:text-text-primary hover:border-border'">
-        <Library class="w-4 h-4" />
+        <Library class="hidden md:block w-4 h-4" />
         {{ t('scrape.tab_library') }}
       </button>
       <button @click="activeTab = 'sessions'"
         class="flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px" :class="activeTab === 'sessions'
           ? 'text-primary border-primary'
           : 'text-text-secondary border-transparent hover:text-text-primary hover:border-border'">
-        <Tag class="w-4 h-4" />
+        <Tag class="hidden md:block w-4 h-4" />
         {{ t('scrape.tab_sessions') }}
         <span v-if="sessions.length > 0"
           class="ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">{{ sessions.length
@@ -931,13 +931,13 @@ onUnmounted(() => {
         class="flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px" :class="activeTab === 'logs'
           ? 'text-primary border-primary'
           : 'text-text-secondary border-transparent hover:text-text-primary hover:border-border'">
-        <ScrollText class="w-4 h-4" />
+        <ScrollText class="hidden md:block w-4 h-4" />
         {{ t('scrape.tab_logs') }}
       </button>
     </div>
 
     <!-- ═══════════ Tab 1: 音乐库选歌 ═══════════ -->
-    <div v-if="activeTab === 'library'" class="flex-1 flex flex-col overflow-hidden">
+    <div v-if="activeTab === 'library'" class="flex-1 flex flex-col overflow-y-auto md:overflow-hidden">
       <!-- 操作面板 -->
       <div class="flex-none flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
         <div class="flex items-center gap-3">
@@ -954,7 +954,7 @@ onUnmounted(() => {
             class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all" :class="isLoadingLibrary
               ? 'bg-primary/50 text-white/70 cursor-not-allowed'
               : 'bg-primary hover:bg-primary-hover text-white shadow-lg shadow-primary/20'">
-            <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': isLoadingLibrary }" />
+            <RefreshCw class="hidden md:block w-4 h-4" :class="{ 'animate-spin': isLoadingLibrary }" />
             {{ t('common.refresh') }}
           </button>
           <button @click="handleCreateScrape" :disabled="selectedSongIds.size === 0 || isCreatingScrape"
@@ -962,7 +962,7 @@ onUnmounted(() => {
               ? 'bg-primary hover:bg-primary-hover text-white shadow-lg shadow-primary/20'
               : 'bg-bg-elevate text-text-tertiary cursor-not-allowed border border-border'">
             <RefreshCw v-if="isCreatingScrape" class="w-4 h-4 animate-spin" />
-            <Search v-else class="w-4 h-4" />
+            <Search v-else class="hidden md:block w-4 h-4" />
             {{ isCreatingScrape ? t('scrape.creating') : t('scrape.create_scrape') }}
           </button>
           <button @click="handleAutoScrape" :disabled="selectedSongIds.size === 0 || isAutoScraping"
@@ -970,7 +970,7 @@ onUnmounted(() => {
               ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/20'
               : 'bg-bg-elevate text-text-tertiary cursor-not-allowed border border-border'">
             <RefreshCw v-if="isAutoScraping" class="w-4 h-4 animate-spin" />
-            <Zap v-else class="w-4 h-4" />
+            <Zap v-else class="hidden md:block w-4 h-4" />
             {{ isAutoScraping ? t('scrape.auto_scraping') : t('scrape.auto_scrape') }}
           </button>
         </div>
@@ -1031,7 +1031,7 @@ onUnmounted(() => {
       </div>
 
       <!-- 可选歌曲列表 -->
-      <div class="flex-1 overflow-hidden">
+      <div class="flex-1 min-h-[400px] md:min-h-0 overflow-hidden">
         <SelectableSongList :songs="filteredLibrarySongs" :selected-ids="selectedSongIds" :is-loading="isLoadingLibrary"
           :has-error="hasLibraryError" @retry="retryLibrary" @toggle="toggleSong" @toggle-all="toggleAllSongs" />
       </div>
