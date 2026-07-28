@@ -5,6 +5,7 @@ import { X, Loader2, ImagePlus } from 'lucide-vue-next';
 import { playlistsApi } from '@/api/playlists';
 import { usePlaylists } from '@/composables/usePlaylists';
 import { useToast } from '@/composables/useToast';
+import CoverImage from '@/components/common/CoverImage.vue';
 import type { PlaylistSummary } from '@/types/playlist';
 
 const props = defineProps<{
@@ -181,8 +182,18 @@ const submit = async () => {
               <label class="block text-sm text-text-secondary mb-1.5">{{ t('playlist.cover') }}</label>
               <div class="flex items-center gap-3">
                 <div class="w-16 h-16 rounded-lg overflow-hidden bg-bg-elevate border border-border flex items-center justify-center flex-shrink-0">
-                  <img v-if="coverPreview" :src="coverPreview" class="w-full h-full object-cover" alt="" />
-                  <ImagePlus v-else class="w-6 h-6 text-text-tertiary" />
+                  <CoverImage
+                    :src="coverPreview"
+                    size="small"
+                    :lazy="false"
+                    alt=""
+                  >
+                    <template #fallback>
+                      <div class="w-full h-full flex items-center justify-center">
+                        <ImagePlus class="w-6 h-6 text-text-tertiary" />
+                      </div>
+                    </template>
+                  </CoverImage>
                 </div>
                 <div class="flex flex-col gap-2">
                   <label class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-bg-elevate cursor-pointer text-text-primary">

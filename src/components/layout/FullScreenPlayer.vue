@@ -501,6 +501,7 @@ const seekToLyric = (time: number) => {
          <CoverImage
            :cover-id="playerStore.currentSong.cover_id"
            size="medium"
+           :lazy="false"
          />
       </div>
       <div class="absolute inset-0 z-[-1] bg-bg-main/80 backdrop-blur-3xl"></div>
@@ -594,6 +595,7 @@ const seekToLyric = (time: number) => {
                 <CoverImage
                   :cover-id="playerStore.currentSong?.cover_id"
                   size="medium"
+                  :lazy="false"
                   :alt="playerStore.currentSong?.title || ''"
                 >
                   <template #fallback>

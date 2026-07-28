@@ -10,12 +10,13 @@ const props = withDefaults(defineProps<{
   src?: string | null;
   size?: 'thumb' | 'small' | 'medium' | 'large';
   imgClass?: string;
+  /** 列表场景默认开启；播放器当前曲等需立即显示时传 false */
   lazy?: boolean;
   alt?: string;
 }>(), {
   size: 'small',
   imgClass: '',
-  lazy: false,
+  lazy: true,
   alt: '',
 });
 

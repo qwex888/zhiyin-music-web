@@ -889,7 +889,7 @@ onUnmounted(() => {
     <ScrapeDisabledPanel v-if="scrapeFeatureReady && !scrapeEnabled" />
     <template v-else-if="scrapeFeatureReady && scrapeEnabled">
     <!-- 页头 -->
-    <header class="pt-2 md:pt-0 flex-none mb-6">
+    <header class="pt-2 md:pt-0 flex-none mb-2 md:mb-6">
       <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
           <h1 class="text-2xl md:text-3xl font-bold text-text-primary tracking-tight mb-1 flex items-center gap-3">
@@ -909,7 +909,7 @@ onUnmounted(() => {
     </header>
 
     <!-- Tab 切换 -->
-    <div class="flex-none justify-center md:justify-start flex items-center gap-1 mb-5 border-b border-border">
+    <div class="flex-none justify-center md:justify-start flex items-center gap-1 mb-2 md:mb-5 border-b border-border">
       <button @click="activeTab = 'library'"
         class="flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px" :class="activeTab === 'library'
           ? 'text-primary border-primary'
@@ -1010,17 +1010,21 @@ onUnmounted(() => {
       </div>
 
       <!-- 元数据筛选 -->
-      <div class="flex-none mb-3 flex flex-wrap items-center gap-2">
+      <div class="flex-none mb-3 flex items-center gap-2 min-w-0">
         <Filter class="w-4 h-4 text-text-tertiary flex-shrink-0" />
-        <button v-for="opt in metadataFilterOptions" :key="opt.key"
-          @click="activeMetadataFilter = opt.key; selectedSongIds = new Set()"
-          class="px-3 py-1 rounded-full text-xs font-medium transition-all border" :class="activeMetadataFilter === opt.key
-            ? 'bg-primary text-white border-primary shadow-sm'
-            : 'bg-bg-elevate text-text-secondary border-border hover:border-primary/30 hover:text-text-primary'">
-          {{ t(opt.labelKey) }}
-          <span v-if="filterCounts[opt.key]" class="ml-1 opacity-70">{{ filterCounts[opt.key] }}</span>
-          <span v-else-if="opt.key === 'all'" class="ml-1 opacity-70">{{ librarySongs.length }}</span>
-        </button>
+        <div class="flex-1 min-w-0 overflow-x-auto metadata-filter-scroll">
+          <div class="flex items-center gap-2 w-max pr-1">
+            <button v-for="opt in metadataFilterOptions" :key="opt.key"
+              @click="activeMetadataFilter = opt.key; selectedSongIds = new Set()"
+              class="px-3 py-1 rounded-full text-xs font-medium transition-all border whitespace-nowrap flex-shrink-0" :class="activeMetadataFilter === opt.key
+                ? 'bg-primary text-white border-primary shadow-sm'
+                : 'bg-bg-elevate text-text-secondary border-border hover:border-primary/30 hover:text-text-primary'">
+              {{ t(opt.labelKey) }}
+              <span v-if="filterCounts[opt.key]" class="ml-1 opacity-70">{{ filterCounts[opt.key] }}</span>
+              <span v-else-if="opt.key === 'all'" class="ml-1 opacity-70">{{ librarySongs.length }}</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="flex-none mb-3 relative">
@@ -1655,6 +1659,14 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.metadata-filter-scroll {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.metadata-filter-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 .animate-fade-in {
   animation: fadeIn 0.5s ease-out;
 }

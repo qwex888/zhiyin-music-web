@@ -161,6 +161,7 @@ const openAddToPlaylist = (e: Event) => {
           v-if="playerStore.currentSong"
           :cover-id="playerStore.currentSong.cover_id"
           size="small"
+          :lazy="false"
           :alt="t('player.playing')"
         />
         <div v-else class="w-full h-full flex items-center justify-center text-text-tertiary bg-bg-surface">
