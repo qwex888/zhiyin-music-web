@@ -145,15 +145,26 @@ const formatTime = (seconds: number | null | undefined) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
-// Progress handling
+// Progress handling（拖动中用本地预览，松手才真正 seek）
 const prevProgressPercent = ref(0);
+const isSeeking = ref(false);
+const previewPercent = ref(0);
 const progressPercent = computed(() => {
+  if (isSeeking.value) return previewPercent.value;
   if (!playerStore.duration) return 0;
   return (playerStore.progress / playerStore.duration) * 100;
 });
 
+const displayProgress = computed(() => {
+  if (isSeeking.value && playerStore.duration) {
+    return (previewPercent.value / 100) * playerStore.duration;
+  }
+  return playerStore.progress;
+});
+
 // 检测进度是否需要过渡效果（切换歌曲时禁用过渡）
 const shouldTransition = computed(() => {
+  if (isSeeking.value) return false;
   const current = progressPercent.value;
   const prev = prevProgressPercent.value;
   
@@ -165,16 +176,26 @@ const shouldTransition = computed(() => {
   return true;
 });
 
-// 监听进度变化，更新上一次的值
+// 监听进度变化，更新上一次的值（拖动中不跟 store 回写）
 watch(progressPercent, (newVal) => {
+  if (isSeeking.value) return;
   prevProgressPercent.value = newVal;
 });
 
-const handleSeek = (e: Event) => {
+const handleSeekInput = (e: Event) => {
   if (!playerStore.canSeek) return;
-  const target = e.target as HTMLInputElement;
-  const val = Number(target.value);
+  const val = Number((e.target as HTMLInputElement).value);
+  isSeeking.value = true;
+  previewPercent.value = val;
+};
+
+const commitSeek = (e: Event) => {
+  if (!playerStore.canSeek) return;
+  const val = Number((e.target as HTMLInputElement).value);
+  previewPercent.value = val;
   playerStore.seek((val / 100) * playerStore.duration);
+  isSeeking.value = false;
+  prevProgressPercent.value = val;
 };
 
 const qualityShortLabels: Record<string, string> = { low: '128k', medium: '192k', high: '320k', lossless: 'FLAC', original: 'ORI' };
@@ -697,13 +718,14 @@ const seekToLyric = (time: number) => {
                 max="100" 
                 :value="progressPercent"
                 :disabled="!playerStore.canSeek"
-                @input="handleSeek"
+                @input="handleSeekInput"
+                @change="commitSeek"
                 class="absolute inset-0 w-full h-full opacity-0"
                 :class="playerStore.canSeek ? 'cursor-pointer' : 'cursor-not-allowed'"
               />
             </div>
             <div class="flex justify-between text-xs lg:text-sm text-text-tertiary font-mono">
-              <span>{{ formatTime(playerStore.progress) }}</span>
+              <span>{{ formatTime(displayProgress) }}</span>
               <span>{{ formatTime(playerStore.duration) }}</span>
             </div>
           </div>

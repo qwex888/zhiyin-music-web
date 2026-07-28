@@ -24,7 +24,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const toast = useToast();
 const playerStore = usePlayerStore();
-const { getSourceLabel, getSourceColorClass, getSourceBadgeStyle, ensureLoaded } = useScrapeSources();
+const { getSourceLabel, getSourceColorClass, getSourceBadgeStyle, ensureLoaded, getEnabledKeys } = useScrapeSources();
 
 const title = ref('');
 const artist = ref('');
@@ -263,6 +263,11 @@ const isDurationClose = computed(() => {
 
 const handleSearch = async () => {
   if (!canSearch.value) return;
+  await ensureLoaded();
+  if (getEnabledKeys().length === 0) {
+    toast.error(t('lyrics.no_enabled_sources'));
+    return;
+  }
   isSearching.value = true;
   results.value = [];
   currentIndex.value = 0;
@@ -289,8 +294,9 @@ const handleSearch = async () => {
         });
       });
     }
-  } catch {
-    toast.error(t('common.error'));
+  } catch (e: unknown) {
+    const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+    toast.error(typeof msg === 'string' && msg ? msg : t('common.error'));
   } finally {
     isSearching.value = false;
   }

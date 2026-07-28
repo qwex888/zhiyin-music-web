@@ -843,7 +843,7 @@ onUnmounted(() => {
                 : 'bg-bg-elevate text-text-tertiary cursor-not-allowed'"
               :disabled="isSaving || !hasConfigChanged"
             >
-              <Save class="w-4 h-4" />
+              <Save class="hidden md:blockw-4 h-4" />
               {{ isSaving ? t('settings.saving') : t('settings.save_changes') }}
             </button>
           </div>
@@ -1317,7 +1317,7 @@ onUnmounted(() => {
                 : 'bg-bg-elevate text-text-tertiary cursor-not-allowed'"
               :disabled="isSaving || !hasConfigChanged"
             >
-              <Save class="w-4 h-4" />
+              <Save class="hidden md:block w-4 h-4" />
               {{ isSaving ? t('settings.saving') : t('settings.save_changes') }}
             </button>
           </div>

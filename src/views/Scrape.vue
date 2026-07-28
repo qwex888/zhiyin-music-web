@@ -77,6 +77,7 @@ const isCreatingScrape = ref(false);
 
 type MetadataFilter = 'all' | 'missing_cover' | 'missing_artist' | 'missing_album' | 'missing_year' | 'missing_genre' | 'missing_duration';
 const activeMetadataFilter = ref<MetadataFilter>('all');
+const libraryKeyword = ref('');
 
 const metadataFilterOptions: { key: MetadataFilter; labelKey: string }[] = [
   { key: 'all', labelKey: 'scrape.filter_meta_all' },
@@ -88,18 +89,27 @@ const metadataFilterOptions: { key: MetadataFilter; labelKey: string }[] = [
 ];
 
 const filteredLibrarySongs = computed(() => {
-  const songs = librarySongs.value;
-  if (activeMetadataFilter.value === 'all') return songs;
+  let songs = librarySongs.value;
+  if (activeMetadataFilter.value !== 'all') {
+    songs = songs.filter(s => {
+      switch (activeMetadataFilter.value) {
+        case 'missing_cover': return !s.cover_id;
+        case 'missing_artist': return !s.artist && !s.artist_name && !s.artist_id;
+        case 'missing_album': return !s.album && !s.album_name && !s.album_id;
+        case 'missing_year': return !s.year;
+        case 'missing_genre': return !s.genre;
+        case 'missing_duration': return !s.duration_secs;
+        default: return true;
+      }
+    });
+  }
+  const kw = libraryKeyword.value.trim().toLowerCase();
+  if (!kw) return songs;
   return songs.filter(s => {
-    switch (activeMetadataFilter.value) {
-      case 'missing_cover': return !s.cover_id;
-      case 'missing_artist': return !s.artist && !s.artist_name && !s.artist_id;
-      case 'missing_album': return !s.album && !s.album_name && !s.album_id;
-      case 'missing_year': return !s.year;
-      case 'missing_genre': return !s.genre;
-      case 'missing_duration': return !s.duration_secs;
-      default: return true;
-    }
+    const title = (s.title || '').toLowerCase();
+    const artist = (s.artist || s.artist_name || '').toLowerCase();
+    const album = (s.album || s.album_name || '').toLowerCase();
+    return title.includes(kw) || artist.includes(kw) || album.includes(kw);
   });
 });
 
@@ -187,13 +197,19 @@ let autoScrapeTimer: ReturnType<typeof setInterval> | null = null;
 
 const handleAutoScrape = async () => {
   if (selectedSongIds.value.size === 0) return;
+  await ensureLoaded();
+  if (getEnabledKeys().length === 0) {
+    toast.error(t('scrape.no_enabled_sources'));
+    return;
+  }
   isAutoScraping.value = true;
   try {
     const ids = [...selectedSongIds.value];
     await scrapeApi.autoScrape(ids, autoScrapeMinScore.value);
     startAutoScrapePolling();
-  } catch {
-    toast.error(t('scrape.auto_scrape_conflict'));
+  } catch (e: unknown) {
+    const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+    toast.error(typeof msg === 'string' && msg ? msg : t('scrape.auto_scrape_conflict'));
     isAutoScraping.value = false;
   }
 };
@@ -586,6 +602,11 @@ const toggleSource = (source: string) => {
 
 const handleSearch = async () => {
   if (!expandedSessionId.value) return;
+  await ensureLoaded();
+  if (getEnabledKeys().length === 0) {
+    toast.error(t('scrape.no_enabled_sources'));
+    return;
+  }
   isSearching.value = true;
   searchResults.value = [];
   try {
@@ -596,6 +617,9 @@ const handleSearch = async () => {
       sources: searchForm.value.sources.length > 0 ? searchForm.value.sources : undefined,
     });
     searchResults.value = data.candidates;
+    if (data.candidates.length === 0) {
+      toast.info(t('scrape.no_results'));
+    }
     if (expandedSessionId.value) {
       mobileSearchMetaExpanded.value = {
         ...mobileSearchMetaExpanded.value,
@@ -603,8 +627,9 @@ const handleSearch = async () => {
       };
     }
     await fetchSessions();
-  } catch {
-    toast.error(t('common.error'));
+  } catch (e: unknown) {
+    const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+    toast.error(typeof msg === 'string' && msg ? msg : t('common.error'));
   } finally {
     isSearching.value = false;
   }
@@ -998,6 +1023,13 @@ onUnmounted(() => {
         </button>
       </div>
 
+      <div class="flex-none mb-3 relative">
+        <Search class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
+        <input v-model="libraryKeyword" type="search"
+          :placeholder="t('scrape.library_search_placeholder')"
+          class="w-full pl-9 pr-3 py-2 bg-bg-elevate rounded-xl border border-border text-sm text-text-primary placeholder:text-text-tertiary focus:border-primary outline-none" />
+      </div>
+
       <!-- 可选歌曲列表 -->
       <div class="flex-1 overflow-hidden">
         <SelectableSongList :songs="filteredLibrarySongs" :selected-ids="selectedSongIds" :is-loading="isLoadingLibrary"
@@ -1169,6 +1201,10 @@ onUnmounted(() => {
                       <!-- 来源选择 -->
                       <div>
                         <label class="block text-text-secondary text-xs mb-1.5">{{ t('scrape.search_sources') }}</label>
+                        <p v-if="enabledSources.length === 0"
+                          class="mb-2 text-xs text-amber-500 leading-relaxed">
+                          {{ t('scrape.no_enabled_sources') }}
+                        </p>
                         <div class="flex flex-wrap gap-2">
                           <button v-for="src in allSources" :key="src.value" @click="toggleSource(src.value)"
                             class="px-2.5 py-1 rounded-md text-xs font-medium transition-all border" :class="searchForm.sources.includes(src.value)
