@@ -17,6 +17,7 @@ import { scrapeSourcesApi } from '@/api/scrapeSources';
 import { authApi } from '@/api/auth';
 import { useToast } from '@/composables/useToast';
 import { useScrapeFeature } from '@/composables/useScrapeFeature';
+import { useUpdateCheck } from '@/composables/useUpdateCheck';
 import { ref, onMounted, onUnmounted, reactive, computed, nextTick, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import type { SystemConfig, UpdateConfigParams } from '@/types/config';
@@ -33,6 +34,11 @@ const isAdmin = computed(() => authStore.isAdmin);
 const libraryStore = useLibraryStore();
 const offlineStore = useOfflineStore();
 const { setEnabledLocal } = useScrapeFeature();
+const {
+  latestTag,
+  hasUpdate,
+  refreshUpdateCheck,
+} = useUpdateCheck();
 const route = useRoute();
 
 const qualityOptions = [
@@ -52,75 +58,13 @@ let scanPollTimer: ReturnType<typeof setInterval> | null = null;
 const config = ref<SystemConfig | null>(null);
 const newRootPath = ref('');
 const showDirBrowser = ref(false);
-const latestVersion = ref<string | null>(null);
 
 const GITHUB_REPO_URL = 'https://github.com/qwex888/zhiyin-music-web';
 const GITHUB_ISSUES_URL = 'https://github.com/qwex888/zhiyin-music-web/issues';
-
-const compareVersions = (a: string, b: string): number => {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const na = pa[i] || 0;
-    const nb = pb[i] || 0;
-    if (na > nb) return 1;
-    if (na < nb) return -1;
-  }
-  return 0;
-};
-
-const hasUpdate = computed(() => {
-  if (!latestVersion.value || !healthInfo.value?.version) return false;
-  return compareVersions(latestVersion.value, healthInfo.value.version) > 0;
-});
-
-const VERSION_CACHE_KEY = 'zhiyin_latest_version';
-// 时间戳，1小时
-const VERSION_CACHE_TTL = 1 * 60 * 60 * 1000;
+const DOCKER_HUB_TAGS_URL = 'https://hub.docker.com/r/qwex333/zhiyin-music/tags';
 
 const checkLatestVersion = async () => {
-  // const API_URL = 'https://github.com/qwex888/zhiyin-music-web/releases/latest';
-  const API_URL = 'https://api.github.com/repos/qwex888/zhiyin-music-web/releases/latest';
-
-  try {
-    const cached = localStorage.getItem(VERSION_CACHE_KEY);
-    if (cached) {
-      const { version, etag, ts } = JSON.parse(cached);
-      if (Date.now() - ts < VERSION_CACHE_TTL) {
-        latestVersion.value = version;
-        return;
-      }
-      const headers: Record<string, string> = { Accept: 'application/vnd.github.v3+json' };
-      if (etag) headers['If-None-Match'] = etag;
-      const res = await fetch(API_URL, { headers });
-      console.log('checkLatestVersion', res);
-      if (res.status === 304) {
-        localStorage.setItem(VERSION_CACHE_KEY, JSON.stringify({ version, etag, ts: Date.now() }));
-        latestVersion.value = version;
-        return;
-      }
-      if (!res.ok) {
-        latestVersion.value = version;
-        return;
-      }
-      const data = await res.json();
-      const tag = data.tag_name?.replace(/^v/, '') || null;
-      const newEtag = res.headers.get('etag') || etag;
-      localStorage.setItem(VERSION_CACHE_KEY, JSON.stringify({ version: tag, etag: newEtag, ts: Date.now() }));
-      latestVersion.value = tag;
-    } else {
-      const res = await fetch(API_URL, { headers: { Accept: 'application/vnd.github.v3+json' } });
-      if (!res.ok) return;
-      console.log('checkLatestVersion else', res);
-      const data = await res.json();
-      const tag = data.tag_name?.replace(/^v/, '') || null;
-      const etag = res.headers.get('etag') || '';
-      localStorage.setItem(VERSION_CACHE_KEY, JSON.stringify({ version: tag, etag, ts: Date.now() }));
-      latestVersion.value = tag;
-    }
-  } catch {
-    // network error, silently ignore
-  }
+  await refreshUpdateCheck(true);
 };
 
 const isScanning = computed(() => scanStatus.value?.scanning === true);
@@ -1238,14 +1182,14 @@ onUnmounted(() => {
                    </span>
                    <a
                      v-if="hasUpdate"
-                     :href="`${GITHUB_REPO_URL}/releases/latest`"
+                     :href="DOCKER_HUB_TAGS_URL"
                      target="_blank"
                      rel="noopener noreferrer"
                      class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 transition-colors"
-                     :title="t('settings.update_available_hint', { version: latestVersion })"
+                     :title="t('settings.update_available_hint', { version: latestTag })"
                    >
                      <ArrowUpCircle class="w-3.5 h-3.5" />
-                     {{ t('common.new_version', { version: latestVersion }) }}
+                     {{ t('common.new_version', { version: latestTag }) }}
                    </a>
                  </div>
               </div>

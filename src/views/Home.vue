@@ -11,6 +11,7 @@ import { Play, Clock, BarChart3, Disc, Music2, Users, Inbox, AlertCircle, Refres
 import { usePlayerStore } from '@/stores/player';
 import { useI18n } from 'vue-i18n';
 import CoverImage from '@/components/common/CoverImage.vue';
+import { useUpdateCheck } from '@/composables/useUpdateCheck';
 import TipBanner from '@/components/common/TipBanner.vue';
 import dayjs from 'dayjs';
 import { useOfflineStore } from '@/stores/offline';
@@ -21,6 +22,7 @@ const playerStore = usePlayerStore();
 const offlineStore = useOfflineStore();
 const { t } = useI18n();
 const router = useRouter();
+const { setOnboardingBlocking } = useUpdateCheck();
 
 const stats = ref<Stats | null>(null);
 const recentSongs = ref<RecentSong[]>([]);
@@ -97,6 +99,7 @@ onMounted(() => {
   try {
     if (localStorage.getItem('zhiyin_needs_onboarding') === '1') {
       showOnboarding.value = true;
+      setOnboardingBlocking(true);
       localStorage.removeItem('zhiyin_needs_onboarding');
     }
   } catch { /* noop */ }
@@ -104,10 +107,12 @@ onMounted(() => {
 
 const dismissOnboarding = () => {
   showOnboarding.value = false;
+  setOnboardingBlocking(false);
 };
 
 const goToSettings = () => {
   showOnboarding.value = false;
+  setOnboardingBlocking(false);
   router.push({ name: 'Settings' });
 };
 

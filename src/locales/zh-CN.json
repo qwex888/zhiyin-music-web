@@ -799,5 +799,11 @@
     "unavailable": "不可用",
     "probe_error": "错误信息",
     "not_probed": "暂无探测数据"
+  },
+  "update_guide": {
+    "title": "发现新版本",
+    "desc": "已发布新版本 v{version}，可在设置页查看更新提示。",
+    "settings_hint": "关闭后不再弹出此引导，设置页仍会显示更新提示。",
+    "got_it": "知道了"
   }
 }

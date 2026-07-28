@@ -1,18 +1,25 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import Sidebar from './Sidebar.vue';
 import PlayerBar from './PlayerBar.vue';
 import OfflineBanner from '@/components/common/OfflineBanner.vue';
 import GithubIcon from '@/components/common/GithubIcon.vue';
+import UpdateGuideModal from '@/components/common/UpdateGuideModal.vue';
 import { Menu, Sun, Moon } from 'lucide-vue-next';
 import { useTheme } from '@/composables/useTheme';
+import { useUpdateCheck } from '@/composables/useUpdateCheck';
 
 const route = useRoute();
 const { t } = useI18n();
 const { theme, toggleTheme } = useTheme();
 const showMobileMenu = ref(false);
+const { refreshUpdateCheck } = useUpdateCheck();
+
+onMounted(() => {
+  void refreshUpdateCheck();
+});
 
 // 路由变化时关闭移动端菜单
 watch(() => route.path, () => {
@@ -23,6 +30,7 @@ watch(() => route.path, () => {
 <template>
   <div class="flex flex-col h-screen overflow-hidden bg-bg-main text-text-primary font-sans selection:bg-primary selection:text-white">
     <OfflineBanner />
+    <UpdateGuideModal />
 
     <!-- 移动端 Header -->
     <header class="md:hidden h-14 bg-bg-surface/80 backdrop-blur-md border-b border-border flex items-center justify-between px-4 z-40 fixed top-0 w-full">

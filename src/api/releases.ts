@@ -28,6 +28,17 @@ export interface ReleasesResponse {
   modules: ReleaseModule[];
 }
 
+export interface LatestReleaseResponse {
+  tag?: string | null;
+  html_url: string;
+  checked_at: string;
+  cached: boolean;
+  stale: boolean;
+  summary: string;
+  modules: ReleaseModule[];
+}
+
 export const releasesApi = {
   getReleases: () => api.get<ReleasesResponse>('/releases'),
+  getLatest: () => api.get<LatestReleaseResponse>('/releases/latest'),
 };

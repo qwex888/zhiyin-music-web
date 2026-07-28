@@ -792,5 +792,11 @@
     "unavailable": "Unavailable",
     "probe_error": "Error",
     "not_probed": "No probe data"
+  },
+  "update_guide": {
+    "title": "Update Available",
+    "desc": "Version v{version} is available. You can still see the update badge in Settings.",
+    "settings_hint": "This guide will not show again after dismiss. The Settings page still shows the update badge.",
+    "got_it": "Got it"
   }
 }

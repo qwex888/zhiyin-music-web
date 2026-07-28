@@ -27,6 +27,7 @@ dist-ssr
 # Build output
 dist
 coverage
+__pycache__
 
 # Playwright / Vitest reports
 /test-results/
