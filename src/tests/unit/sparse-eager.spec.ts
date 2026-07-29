@@ -104,4 +104,55 @@ describe('createEagerProgressivePump', () => {
     );
     expect(cached).toBe(1500);
   });
+
+  it('弱网限速源：chunk 间隔拉大时 client cancel 后仍 cache 完整', async () => {
+    const chunks = Array.from({ length: 8 }, (_, i) => new Uint8Array(256).fill(i + 1));
+    const ac = new AbortController();
+    const { forClient, pumpDone } = createEagerProgressivePump(
+      makeSource(chunks, 25),
+      ac.signal,
+      10 * 1024 * 1024,
+    );
+
+    const reader = forClient.getReader();
+    await reader.read();
+    await reader.cancel();
+
+    const pump = await pumpDone;
+    expect(pump.oversize).toBe(false);
+    expect(pump.totalBytes).toBe(8 * 256);
+    expect(pump.cacheParts.length).toBe(8);
+  });
+
+  it('慢源 + 慢 client：泵仍拉满', async () => {
+    const chunks = [
+      new Uint8Array(400).fill(1),
+      new Uint8Array(400).fill(2),
+      new Uint8Array(400).fill(3),
+    ];
+    const ac = new AbortController();
+    const { forClient, pumpDone } = createEagerProgressivePump(
+      makeSource(chunks, 15),
+      ac.signal,
+      10 * 1024 * 1024,
+    );
+
+    const clientP = (async () => {
+      const reader = forClient.getReader();
+      let n = 0;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 20));
+        const { done, value } = await reader.read();
+        if (done) break;
+        n += value?.byteLength ?? 0;
+      }
+      return n;
+    })();
+
+    const pump = await pumpDone;
+    const clientBytes = await clientP;
+    expect(pump.totalBytes).toBe(1200);
+    expect(clientBytes).toBe(1200);
+    expect(pump.oversize).toBe(false);
+  });
 });

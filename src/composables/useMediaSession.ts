@@ -1,4 +1,5 @@
 import type { Song } from '@/types';
+import { ensureCachedCoverObjectUrl } from '@/offline/media-cache';
 
 type PlayerCallbacks = {
   play: () => void;
@@ -12,9 +13,20 @@ type PlayerCallbacks = {
 
 let callbacks: PlayerCallbacks | null = null;
 let positionTimer: ReturnType<typeof setInterval> | null = null;
+/** Media Session artwork 专用 blob:，切歌时 revoke */
+let artworkObjectUrl: string | null = null;
+/** 防止异步封面回写覆盖已切走的歌曲 */
+let metadataGen = 0;
 
 const isMediaSessionSupported = () =>
   typeof navigator !== 'undefined' && 'mediaSession' in navigator;
+
+function revokeArtworkObjectUrl() {
+  if (artworkObjectUrl) {
+    URL.revokeObjectURL(artworkObjectUrl);
+    artworkObjectUrl = null;
+  }
+}
 
 export function attachMediaSessionHandlers(cbs: PlayerCallbacks) {
   if (!isMediaSessionSupported()) return;
@@ -57,29 +69,60 @@ export function attachMediaSessionHandlers(cbs: PlayerCallbacks) {
   }
 }
 
+/**
+ * 更新 Media Session 元数据。
+ * 封面只用已缓存的 blob:（经 ensureCachedCoverObjectUrl，与 CoverImage 共享去重），
+ * 禁止直接塞 /api/covers/{id}，避免系统再打一遍网络。
+ */
 export function updateMediaSessionMetadata(song: Song | null) {
-  if (!isMediaSessionSupported() || !song) {
-    if (isMediaSessionSupported()) {
-      navigator.mediaSession.metadata = null;
-    }
+  if (!isMediaSessionSupported()) return;
+
+  const gen = ++metadataGen;
+  revokeArtworkObjectUrl();
+
+  if (!song) {
+    navigator.mediaSession.metadata = null;
     return;
   }
 
   const artist = song.artist || song.artist_name || '';
   const album = song.album || song.album_name || '';
-  const artwork: MediaImage[] = [];
-  if (song.cover_id) {
-    const url = `/api/covers/${song.cover_id}`;
-    artwork.push({ src: url, sizes: '512x512', type: 'image/jpeg' });
-    artwork.push({ src: url, sizes: '256x256', type: 'image/jpeg' });
-  }
+  const title = song.title || 'Unknown';
 
+  // 先无网络封面，避免浏览器立刻请求 /api/covers
   navigator.mediaSession.metadata = new MediaMetadata({
-    title: song.title || 'Unknown',
+    title,
     artist,
     album,
-    artwork,
+    artwork: [],
   });
+
+  const coverId = song.cover_id;
+  if (!coverId) return;
+
+  void (async () => {
+    const blobUrl = await ensureCachedCoverObjectUrl(coverId);
+    if (gen !== metadataGen) {
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      return;
+    }
+    if (!blobUrl) return;
+
+    artworkObjectUrl = blobUrl;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title,
+        artist,
+        album,
+        artwork: [
+          { src: blobUrl, sizes: '512x512', type: 'image/jpeg' },
+          { src: blobUrl, sizes: '256x256', type: 'image/jpeg' },
+        ],
+      });
+    } catch {
+      // 个别环境可能拒绝 blob artwork，保持无封面元数据即可
+    }
+  })();
 }
 
 export function setMediaSessionPlaybackState(playing: boolean) {
@@ -109,6 +152,8 @@ export function detachMediaSession() {
     positionTimer = null;
   }
   callbacks = null;
+  metadataGen += 1;
+  revokeArtworkObjectUrl();
   if (isMediaSessionSupported()) {
     navigator.mediaSession.metadata = null;
     try {

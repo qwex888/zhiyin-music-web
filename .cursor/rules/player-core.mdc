@@ -59,18 +59,25 @@ globs:
     ▼                      ▼
  路径 B（STRM）           路径 A（本地 / Range 友好）
  eager pump 流式起播       稀疏 IDB + PLAY_SERVE_CHUNK
- 跳过稀疏 IDB              闲时 fill-audio-gaps
+ 跳过稀疏 IDB              playhead 优先，闲时 fill-audio-gaps
  泵满后写入完整 Cache      拼满后迁入完整 Cache
 ```
 
 ### 路径 A — 本地 / 支持 Range
 
-1. 单次最多服务 `PLAY_SERVE_CHUNK`（**上限 5MB**），立即 206，边下边播、可 seek
-2. **注意**：`<audio>` 自己发的 Range 经常只有 ~1MB；SW 按请求区间拉取，**不会**因为上限是 5MB 就每次都下 5MB。Network 里一串 ~1MB = 浏览器缓冲策略，不是常量没改生效
-3. 分片写入 IndexedDB（`zhiyin-sparse-audio`），闲时补洞凑整首
-4. 闲时补洞：空洞切成 `IDLE_FILL_CHUNK`（**5MB**）任务，**最多 3 并发**；若剩余空洞 &lt; 5MB，请求会更小（如图中并行的 ~2MB）
+1. 单次最多服务 `PLAY_SERVE_CHUNK`（**上限 3MB**），立即 206，边下边播、可 seek
+2. **注意**：`<audio>` 自己发的 Range 经常只有 ~1MB；SW 按请求区间拉取，**不会**因为上限是 3MB 就每次都下 3MB。Network 里一串 ~1MB = 浏览器缓冲策略，不是常量没改生效
+3. 分片写入 IndexedDB（`zhiyin-sparse-audio`），闲时/播放态补洞凑整首
+4. **playhead 优先补洞**（`audio-playhead` + `fill-audio-gaps`，协议 `SPARSE_PROTOCOL=playhead-v2`）：
+   - 窗口：**秒优先**（`URGENT_AHEAD_SEC` / `AHEAD_SEC`）；无 duration 时 fallback 到 `URGENT_FALLBACK_BYTES` / `AHEAD_FALLBACK_BYTES`
+   - 优先级：P0 = 播放头前方紧急窗 → P1 = 其余后方 → P2 = 左侧已播区间（保留，带宽让路）
+   - 播放态并发：`PLAY_FILL_CONCURRENCY = 1`；块大小 `IDLE_FILL_CHUNK`（**2MB**）
+   - Seek / playhead 前进：可抢占落后或 P2 任务并重规划；媒体 Range 在飞时 fill 让路
+   - fill 启动前等待有效 duration/playhead（超时兜底）
+   - 浏览器 / Howler 的 Range **仍会发出**且优先于主动补洞（持锁服务 206；响应头 `X-Zhiyin-Sparse: playhead-v2`）
 5. ❌ 禁止把开放 Range 扩成整文件再 `arrayBuffer`
-6. 客户端 `bgCache` → `fill-audio-gaps`（独立 token，只补洞）
+6. 客户端 `bgCache` → `fill-audio-gaps`（独立 token，只补洞；续签前 cancel 旧 fill）；进度/seek 上报 `audio-playhead`
+7. 改 SW 后需硬刷新 / Unregister，用 Network 里 `X-Zhiyin-Sparse: playhead-v2` 确认非旧 SW
 
 ### 路径 B — STRM / 明确不可 Range seek
 

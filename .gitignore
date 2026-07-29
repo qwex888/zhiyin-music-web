@@ -34,6 +34,7 @@ __pycache__
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+/e2e/test-plan*
 
 # Environment variables
 .env

@@ -14,16 +14,46 @@ export const AUDIO_CACHE = 'zhiyin-audio-v1';
 export const SPARSE_DB = 'zhiyin-sparse-audio';
 export const SPARSE_DB_VERSION = 1;
 
-/** 闲时补洞单次请求大小（字节）— 偏大以减少请求次数 */
-export const IDLE_FILL_CHUNK = 5 * 1024 * 1024;
+/** 闲时/播放态补洞单次请求大小（字节）— 播放态偏小以便跟 playhead 重规划 */
+export const IDLE_FILL_CHUNK = 2 * 1024 * 1024;
 
-/** 闲时补洞最大并发（类上传分片池） */
+/** @deprecated 播放态补洞改为 playhead 优先串行；保留常量以免外部引用断裂 */
 export const IDLE_FILL_CONCURRENCY = 3;
+
+/** 播放中主动补洞并发（弱网保前方，避免与 P2 抢带宽） */
+export const PLAY_FILL_CONCURRENCY = 1;
+
+/** P0 前方紧急窗口（秒）；有 duration 时优先换算为字节 */
+export const URGENT_AHEAD_SEC = 12;
+
+/** P1 前方预取窗口（秒） */
+export const AHEAD_SEC = 75;
 
 /** 起播/seek 单次最多拉取并返回的字节（上限）。
  * 实际单次大小由浏览器 Range 决定；Chrome 播放时常只要 ~1MB，
  * 因此 Network 里仍可能看到大量 ~1MB 请求——增大本常量不会强迫浏览器一次要 5MB。 */
 export const PLAY_SERVE_CHUNK = 3 * 1024 * 1024;
+
+/** 无 duration 时 P0 fallback 字节窗 */
+export const URGENT_FALLBACK_BYTES = PLAY_SERVE_CHUNK;
+
+/** 无 duration 时 P1 fallback 字节窗 */
+export const AHEAD_FALLBACK_BYTES = 3 * IDLE_FILL_CHUNK;
+
+/** seek 跳变超过此字节差则抢占当前补洞任务并重规划 */
+export const SEEK_REEVAL_BYTES = Math.floor(IDLE_FILL_CHUNK / 2);
+
+/** 播放头缓步前进时：P2 / 已落后任务的抢占阈值（秒） */
+export const PLAYHEAD_PREEMPT_SEC = 1.5;
+
+/** fill 等待首个有效 playhead/duration 的超时 */
+export const FILL_PLAYHEAD_WAIT_MS = 3000;
+
+/** 调试协议版本：Network 响应头 X-Zhiyin-Sparse / 便于确认非旧 SW */
+export const SPARSE_PROTOCOL = 'playhead-v2';
+
+/** 补洞任务优先级：P0 紧急前方 / P1 预取 / P2 左侧 */
+export type FillPriority = 0 | 1 | 2;
 
 export type SparseMeta = {
   key: string;
@@ -46,6 +76,27 @@ type RangeSpec = { start: number; end: number | null };
 
 const keyLocks = new Map<string, Promise<unknown>>();
 const activeFills = new Map<string, AbortController>();
+/** 当前补洞任务级 AbortController（seek / playhead 可抢占单任务而不取消整轮 fill） */
+const activeFillTaskAborts = new Map<string, AbortController>();
+/** 在飞补洞任务元信息（用于判断是否该被 playhead / 媒体 Range 抢占） */
+type ActiveFillTaskMeta = {
+  ac: AbortController;
+  priority: FillPriority;
+  start: number;
+  end: number;
+};
+const activeFillTaskMeta = new Map<string, ActiveFillTaskMeta>();
+/** 路径 A：正在服务的媒体 Range 深度（>0 时 fill 让路） */
+const mediaServeDepth = new Map<string, number>();
+
+type PlayheadHint = {
+  positionBytes: number | null;
+  positionSec: number | null;
+  durationSec: number | null;
+  updatedAt: number;
+};
+const playheads = new Map<string, PlayheadHint>();
+
 /** 路径 B：progressive eager 泵内存上限；超过则只播不缓存，避免撑爆 SW */
 export const PROGRESSIVE_EAGER_MAX_BYTES = 100 * 1024 * 1024;
 
@@ -54,8 +105,107 @@ const activeProgressive = new Map<string, AbortController>();
 /** 路径 B：当前会话世代，防止 abort 后的旧 cache 任务误写入 */
 const progressiveGeneration = new Map<string, number>();
 
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+      return;
+    }
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(t);
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    }, { once: true });
+  });
+}
+
 function sparseKey(songId: number | string, quality: string): string {
   return `${songId}:${quality}`;
+}
+
+function beginMediaServe(key: string): void {
+  mediaServeDepth.set(key, (mediaServeDepth.get(key) ?? 0) + 1);
+  // 媒体 Range 优先：打断非 P0 补洞，立刻让出带宽
+  const task = activeFillTaskMeta.get(key);
+  if (task && task.priority !== 0) {
+    try { task.ac.abort(); } catch { /* ignore */ }
+  }
+}
+
+function endMediaServe(key: string): void {
+  const n = (mediaServeDepth.get(key) ?? 1) - 1;
+  if (n <= 0) mediaServeDepth.delete(key);
+  else mediaServeDepth.set(key, n);
+}
+
+function isMediaServeBusy(key: string): boolean {
+  return (mediaServeDepth.get(key) ?? 0) > 0;
+}
+
+function maybePreemptFillTask(
+  key: string,
+  opts: {
+    prevBytes: number | null;
+    positionBytes: number | null;
+    prevSec: number | null;
+    positionSec: number | null;
+  },
+): void {
+  const active = activeFillTaskMeta.get(key);
+  if (!active) return;
+
+  const { prevBytes, positionBytes, prevSec, positionSec } = opts;
+  const bigSeekBytes =
+    prevBytes != null
+    && positionBytes != null
+    && Math.abs(positionBytes - prevBytes) >= SEEK_REEVAL_BYTES;
+  const bigSeekSec =
+    prevSec != null
+    && positionSec != null
+    && Number.isFinite(prevSec)
+    && Number.isFinite(positionSec)
+    && Math.abs(positionSec - prevSec) >= 2;
+  const behindPlayhead =
+    positionBytes != null && active.end < positionBytes;
+  const leftSideStale =
+    active.priority === 2
+    && prevSec != null
+    && positionSec != null
+    && positionSec - prevSec >= PLAYHEAD_PREEMPT_SEC;
+  const p1Behind =
+    active.priority === 1
+    && positionBytes != null
+    && active.end < positionBytes;
+
+  if (bigSeekBytes || bigSeekSec || behindPlayhead || leftSideStale || p1Behind) {
+    try { active.ac.abort(); } catch { /* ignore */ }
+  }
+}
+
+async function waitForPlayheadHint(
+  key: string,
+  signal: AbortSignal,
+  timeoutMs: number = FILL_PLAYHEAD_WAIT_MS,
+): Promise<void> {
+  const start = Date.now();
+  while (!signal.aborted && Date.now() - start < timeoutMs) {
+    const h = playheads.get(key);
+    if (
+      h
+      && (
+        (h.durationSec != null && h.durationSec > 0)
+        || (h.positionSec != null && h.positionSec > 0)
+        || (h.positionBytes != null && h.positionBytes > 0)
+      )
+    ) {
+      return;
+    }
+    try {
+      await sleep(50, signal);
+    } catch {
+      return;
+    }
+  }
 }
 
 function chunkKey(songId: number, quality: string, start: number): string {
@@ -859,87 +1009,93 @@ export async function handleSparseStreamRequest(
     const cached = await cache.match(cachePath);
     if (cached) return serveFullCacheWithRange(cached, event.request);
 
-    return await withKeyLock(key, async () => {
-      const range = parseRangeHeader(event.request.headers.get('Range'));
-      const reqStart = range?.start ?? 0;
-      const reqEnd = range?.end ?? null;
+    beginMediaServe(key);
+    try {
+      return await withKeyLock(key, async () => {
+        const range = parseRangeHeader(event.request.headers.get('Range'));
+        const reqStart = range?.start ?? 0;
+        const reqEnd = range?.end ?? null;
 
-      const db = await openSparseDb();
-      let meta = await getMeta(db, key);
-      let chunks = await getChunks(db, songId, quality);
+        const db = await openSparseDb();
+        let meta = await getMeta(db, key);
+        let chunks = await getChunks(db, songId, quality);
 
-      // 单次只服务一小段：开放 Range / 超大 Range 都截断，边下边播
-      let serveEnd =
-        reqEnd == null
-          ? reqStart + PLAY_SERVE_CHUNK - 1
-          : Math.min(reqEnd, reqStart + PLAY_SERVE_CHUNK - 1);
+        // 单次只服务一小段：开放 Range / 超大 Range 都截断，边下边播
+        let serveEnd =
+          reqEnd == null
+            ? reqStart + PLAY_SERVE_CHUNK - 1
+            : Math.min(reqEnd, reqStart + PLAY_SERVE_CHUNK - 1);
 
-      if (meta?.totalSize != null) {
-        if (reqStart >= meta.totalSize) {
-          return new Response('', {
-            status: 416,
-            statusText: 'Range Not Satisfiable',
-            headers: { 'Content-Range': `bytes */${meta.totalSize}` },
-          });
-        }
-        serveEnd = Math.min(serveEnd, meta.totalSize - 1);
-      }
-
-      const holes = findHoles(
-        chunks.map((c) => ({ start: c.start, end: c.end })),
-        reqStart,
-        serveEnd,
-      );
-
-      for (const hole of holes) {
-        const fetchEnd = Math.min(hole.end, hole.start + PLAY_SERVE_CHUNK - 1);
-        const fetched = await fetchByteRange(
-          event.request.url,
-          hole.start,
-          fetchEnd,
-          event.request.credentials,
-        );
-        meta = await addChunkData(
-          db, songId, quality,
-          fetched.start, fetched.data, fetched.contentType, fetched.totalSize,
-        );
-        // 远端不支持 Range、一次返回整文件：写入后可完整缓存
-        if (fetched.status === 200 && fetched.totalSize != null) {
-          chunks = await getChunks(db, songId, quality);
-          await tryFinalize(db, songId, quality);
-          const nowCached = await cache.match(cachePath);
-          if (nowCached) return serveFullCacheWithRange(nowCached, event.request);
-          break;
-        }
-        // 学到 totalSize 后收紧 serveEnd
-        if (meta.totalSize != null) {
+        if (meta?.totalSize != null) {
+          if (reqStart >= meta.totalSize) {
+            return new Response('', {
+              status: 416,
+              statusText: 'Range Not Satisfiable',
+              headers: { 'Content-Range': `bytes */${meta.totalSize}` },
+            });
+          }
           serveEnd = Math.min(serveEnd, meta.totalSize - 1);
         }
-      }
 
-      chunks = await getChunks(db, songId, quality);
-      meta = (await getMeta(db, key)) ?? meta;
-      if (meta?.totalSize != null) {
-        serveEnd = Math.min(serveEnd, meta.totalSize - 1);
-      }
-      await tryFinalize(db, songId, quality);
+        const holes = findHoles(
+          chunks.map((c) => ({ start: c.start, end: c.end })),
+          reqStart,
+          serveEnd,
+        );
 
-      const nowCached = await cache.match(cachePath);
-      if (nowCached) return serveFullCacheWithRange(nowCached, event.request);
+        for (const hole of holes) {
+          const fetchEnd = Math.min(hole.end, hole.start + PLAY_SERVE_CHUNK - 1);
+          const fetched = await fetchByteRange(
+            event.request.url,
+            hole.start,
+            fetchEnd,
+            event.request.credentials,
+          );
+          meta = await addChunkData(
+            db, songId, quality,
+            fetched.start, fetched.data, fetched.contentType, fetched.totalSize,
+          );
+          // 远端不支持 Range、一次返回整文件：写入后可完整缓存
+          if (fetched.status === 200 && fetched.totalSize != null) {
+            chunks = await getChunks(db, songId, quality);
+            await tryFinalize(db, songId, quality);
+            const nowCached = await cache.match(cachePath);
+            if (nowCached) return serveFullCacheWithRange(nowCached, event.request);
+            break;
+          }
+          // 学到 totalSize 后收紧 serveEnd
+          if (meta.totalSize != null) {
+            serveEnd = Math.min(serveEnd, meta.totalSize - 1);
+          }
+        }
 
-      const body = await assembleRange(chunks, reqStart, serveEnd);
-      const total = meta?.totalSize ?? '*';
-      return new Response(body, {
-        status: 206,
-        statusText: 'Partial Content',
-        headers: {
-          'Content-Type': meta?.contentType || 'application/octet-stream',
-          'Content-Length': String(body.byteLength),
-          'Content-Range': `bytes ${reqStart}-${serveEnd}/${total}`,
-          'Accept-Ranges': 'bytes',
-        },
+        chunks = await getChunks(db, songId, quality);
+        meta = (await getMeta(db, key)) ?? meta;
+        if (meta?.totalSize != null) {
+          serveEnd = Math.min(serveEnd, meta.totalSize - 1);
+        }
+        await tryFinalize(db, songId, quality);
+
+        const nowCached = await cache.match(cachePath);
+        if (nowCached) return serveFullCacheWithRange(nowCached, event.request);
+
+        const body = await assembleRange(chunks, reqStart, serveEnd);
+        const total = meta?.totalSize ?? '*';
+        return new Response(body, {
+          status: 206,
+          statusText: 'Partial Content',
+          headers: {
+            'Content-Type': meta?.contentType || 'application/octet-stream',
+            'Content-Length': String(body.byteLength),
+            'Content-Range': `bytes ${reqStart}-${serveEnd}/${total}`,
+            'Accept-Ranges': 'bytes',
+            'X-Zhiyin-Sparse': SPARSE_PROTOCOL,
+          },
+        });
       });
-    });
+    } finally {
+      endMediaServe(key);
+    }
   } catch (err: any) {
     if (err?.status === 401 || err?.status === 403) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -1012,9 +1168,170 @@ export function planFillTasks(
   return tasks;
 }
 
+export type PriorityFillTask = {
+  start: number;
+  end: number;
+  priority: FillPriority;
+};
+
+/** 秒优先换算窗口；无 duration 时 fallback 到 MB 字节窗 */
+export function resolveWindowBytes(opts: {
+  totalSize: number;
+  durationSec?: number | null;
+  urgentSec?: number;
+  aheadSec?: number;
+  urgentFallbackBytes?: number;
+  aheadFallbackBytes?: number;
+}): { urgentBytes: number; aheadBytes: number; mode: 'seconds' | 'bytes' } {
+  const total = Math.max(0, opts.totalSize);
+  const urgentSec = opts.urgentSec ?? URGENT_AHEAD_SEC;
+  const aheadSec = opts.aheadSec ?? AHEAD_SEC;
+  const urgentFb = opts.urgentFallbackBytes ?? URGENT_FALLBACK_BYTES;
+  const aheadFb = opts.aheadFallbackBytes ?? AHEAD_FALLBACK_BYTES;
+  const dur = opts.durationSec;
+  if (dur != null && Number.isFinite(dur) && dur > 0 && total > 0) {
+    const bps = total / dur;
+    const urgentBytes = Math.min(total, Math.max(1, Math.floor(bps * urgentSec)));
+    const aheadBytes = Math.min(total, Math.max(urgentBytes, Math.floor(bps * aheadSec)));
+    return { urgentBytes, aheadBytes, mode: 'seconds' };
+  }
+  return {
+    urgentBytes: Math.min(total || urgentFb, urgentFb),
+    aheadBytes: Math.min(total || aheadFb, Math.max(urgentFb, aheadFb)),
+    mode: 'bytes',
+  };
+}
+
+/** 将播放头换算为字节偏移（优先显式 positionBytes） */
+export function resolvePlayheadBytes(opts: {
+  totalSize: number;
+  positionSec?: number | null;
+  durationSec?: number | null;
+  positionBytes?: number | null;
+}): number {
+  const total = Math.max(0, opts.totalSize);
+  if (opts.positionBytes != null && Number.isFinite(opts.positionBytes)) {
+    return Math.max(0, Math.min(total, Math.floor(opts.positionBytes)));
+  }
+  const pos = opts.positionSec;
+  const dur = opts.durationSec;
+  if (
+    pos != null && Number.isFinite(pos) && pos >= 0
+    && dur != null && Number.isFinite(dur) && dur > 0
+    && total > 0
+  ) {
+    const maxOffset = Math.max(0, total - 1);
+    return Math.max(0, Math.min(maxOffset, Math.floor((pos / dur) * total)));
+  }
+  return 0;
+}
+
 /**
- * 闲时补洞：用独立 stream URL 只拉取缺失区间，拼满后写入完整 Cache。
- * 分片任务队列 + 最大 IDLE_FILL_CONCURRENCY 并发（参考分片上传）。
+ * playhead 驱动的优先级补洞任务：
+ * P0 = [playhead, playhead+urgent) 相交；P1 = 其余后方；P2 = 左侧已播过。
+ */
+export function planPriorityFillTasks(
+  holes: Array<{ start: number; end: number }>,
+  playheadBytes: number,
+  totalSize: number,
+  opts: {
+    urgentBytes: number;
+    aheadBytes: number;
+    chunkSize?: number;
+  },
+): PriorityFillTask[] {
+  const chunkSize = opts.chunkSize ?? IDLE_FILL_CHUNK;
+  const playhead = Math.max(0, Math.min(Math.max(0, totalSize), Math.floor(playheadBytes)));
+  const urgentEnd = Math.min(Math.max(0, totalSize), playhead + Math.max(0, opts.urgentBytes));
+  const aheadEnd = Math.min(
+    Math.max(0, totalSize),
+    playhead + Math.max(opts.urgentBytes, opts.aheadBytes),
+  );
+
+  const raw = planFillTasks(holes, chunkSize);
+  const tasks: PriorityFillTask[] = [];
+  for (const t of raw) {
+    let priority: FillPriority;
+    if (t.end < playhead) {
+      priority = 2;
+    } else if (t.start < urgentEnd) {
+      priority = 0;
+    } else {
+      priority = 1;
+    }
+    // 后方超出 ahead 窗的任务仍保留为 P1，但排序靠后；左侧 P2 始终最后
+    if (priority === 1 && t.start >= aheadEnd) {
+      // 仍为 P1，靠 start 排序自然靠后
+    }
+    tasks.push({ ...t, priority });
+  }
+  tasks.sort((a, b) => a.priority - b.priority || a.start - b.start);
+  return tasks;
+}
+
+/**
+ * 主线程上报播放头。大跳变 / 任务已落后 / P2 缓步过期时抢占当前补洞任务。
+ */
+export function setAudioPlayhead(
+  songId: number,
+  quality: string,
+  hint: {
+    positionBytes?: number | null;
+    positionSec?: number | null;
+    durationSec?: number | null;
+    totalSize?: number | null;
+  },
+): void {
+  const key = sparseKey(songId, quality);
+  const prev = playheads.get(key);
+  const durationSec = hint.durationSec ?? prev?.durationSec ?? null;
+  const positionSec = hint.positionSec ?? prev?.positionSec ?? null;
+  let positionBytes =
+    hint.positionBytes != null && Number.isFinite(hint.positionBytes)
+      ? Math.floor(hint.positionBytes)
+      : null;
+
+  const totalSize = hint.totalSize;
+  if (positionBytes == null && totalSize != null && totalSize > 0) {
+    positionBytes = resolvePlayheadBytes({
+      totalSize,
+      positionSec,
+      durationSec,
+      positionBytes: null,
+    });
+  }
+
+  let prevBytes = prev?.positionBytes ?? null;
+  if (prevBytes == null && prev && totalSize != null && totalSize > 0) {
+    prevBytes = resolvePlayheadBytes({
+      totalSize,
+      positionSec: prev.positionSec,
+      durationSec: prev.durationSec ?? durationSec,
+      positionBytes: null,
+    });
+  }
+
+  playheads.set(key, {
+    positionBytes,
+    positionSec,
+    durationSec,
+    updatedAt: Date.now(),
+  });
+
+  maybePreemptFillTask(key, {
+    prevBytes,
+    positionBytes,
+    prevSec: prev?.positionSec ?? null,
+    positionSec,
+  });
+}
+
+export function clearAudioPlayhead(songId: number, quality: string): void {
+  playheads.delete(sparseKey(songId, quality));
+}
+
+/**
+ * 闲时/播放态补洞：playhead 优先串行（PLAY_FILL_CONCURRENCY=1），拼满后写入完整 Cache。
  * 网络请求在锁外执行，写入 IDB 时持锁，避免阻塞播放 Range。
  */
 export async function fillSparseGaps(options: {
@@ -1036,6 +1353,9 @@ export async function fillSparseGaps(options: {
   activeFills.set(key, ac);
 
   try {
+    // 等主线程先上报 duration/playhead，避免从字节 0 瞎规划
+    await waitForPlayheadHint(key, ac.signal);
+
     // 探测 totalSize（若尚无）
     const needProbe = await withKeyLock(key, async () => {
       const db = await openSparseDb();
@@ -1046,6 +1366,10 @@ export async function fillSparseGaps(options: {
     if (needProbe) {
       if (ac.signal.aborted) return 'cancelled';
       try {
+        // 媒体忙时让路
+        while (!ac.signal.aborted && isMediaServeBusy(key)) {
+          try { await sleep(40, ac.signal); } catch { return 'cancelled'; }
+        }
         const probe = await fetchByteRange(
           url, 0, Math.min(65536, IDLE_FILL_CHUNK) - 1, 'include', ac.signal,
         );
@@ -1069,7 +1393,7 @@ export async function fillSparseGaps(options: {
     }
 
     while (!ac.signal.aborted) {
-      // 规划本轮任务：只取当前仍缺失的区间，切成大块
+      // 每轮只取当前最高优先级任务，便于 seek 后立刻重排
       const planned = await withKeyLock(key, async () => {
         const db = await openSparseDb();
         if (await caches.open(AUDIO_CACHE).then((c) => c.match(cacheKeyPath(songId, quality)))) {
@@ -1091,7 +1415,22 @@ export async function fillSparseGaps(options: {
           return { kind: ok ? 'done' as const : 'error' as const };
         }
 
-        return { kind: 'tasks' as const, tasks: planFillTasks(holes, IDLE_FILL_CHUNK) };
+        const hint = playheads.get(key);
+        const playheadBytes = resolvePlayheadBytes({
+          totalSize: meta.totalSize,
+          positionSec: hint?.positionSec,
+          durationSec: hint?.durationSec,
+          positionBytes: hint?.positionBytes,
+        });
+        const window = resolveWindowBytes({
+          totalSize: meta.totalSize,
+          durationSec: hint?.durationSec,
+        });
+        const tasks = planPriorityFillTasks(holes, playheadBytes, meta.totalSize, {
+          urgentBytes: window.urgentBytes,
+          aheadBytes: window.aheadBytes,
+        });
+        return { kind: 'tasks' as const, tasks, concurrency: PLAY_FILL_CONCURRENCY };
       });
 
       if (planned.kind === 'done') return 'done';
@@ -1101,54 +1440,78 @@ export async function fillSparseGaps(options: {
       const taskQueue = planned.tasks;
       if (taskQueue.length === 0) return 'error';
 
-      // 并发池：最多 IDLE_FILL_CONCURRENCY 个在飞请求（类上传分片）
-      let cursor = 0;
-      // 用对象承载状态，避免 async 回调内赋值后被控制流收窄成仅 'ok'
-      const fillState: { reason: 'ok' | 'cancelled' | 'need_token' | 'error' } = { reason: 'ok' };
+      // 串行：只跑队首，完成后 while 重规划（seek / playhead 自然生效）
+      const workerCount = Math.min(PLAY_FILL_CONCURRENCY, taskQueue.length);
+      const batch = taskQueue.slice(0, workerCount);
+      const fillState: { reason: 'ok' | 'cancelled' | 'need_token' | 'error' | 'replan' } = {
+        reason: 'ok',
+      };
 
-      const runWorker = async () => {
-        while (!ac.signal.aborted && fillState.reason === 'ok') {
-          const idx = cursor++;
-          if (idx >= taskQueue.length) return;
-          const task = taskQueue[idx];
+      await Promise.all(batch.map(async (task) => {
+        if (ac.signal.aborted || fillState.reason !== 'ok') return;
 
-          try {
-            const fetched = await fetchByteRange(
-              url, task.start, task.end, 'include', ac.signal,
-            );
-            await withKeyLock(key, async () => {
-              const db = await openSparseDb();
-              await addChunkData(
-                db, songId, quality,
-                fetched.start, fetched.data, fetched.contentType, fetched.totalSize,
-              );
-            });
-          } catch (e: any) {
-            if (e?.name === 'AbortError') {
-              // 勿覆盖 need_token / error（由其它 worker 触发的 abort）
-              if (fillState.reason === 'ok') fillState.reason = 'cancelled';
-              return;
-            }
-            if (e?.status === 401 || e?.status === 403) {
-              fillState.reason = 'need_token';
-              ac.abort();
-              return;
-            }
-            fillState.reason = 'error';
-            ac.abort();
+        // 媒体 Range 在飞时让路（P0 也等，避免和播放抢带宽）
+        while (!ac.signal.aborted && isMediaServeBusy(key)) {
+          try { await sleep(40, ac.signal); } catch {
+            if (fillState.reason === 'ok') fillState.reason = 'cancelled';
             return;
           }
         }
-      };
+        if (ac.signal.aborted || fillState.reason !== 'ok') return;
 
-      const workerCount = Math.min(IDLE_FILL_CONCURRENCY, taskQueue.length);
-      await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+        const taskAc = new AbortController();
+        activeFillTaskAborts.set(key, taskAc);
+        activeFillTaskMeta.set(key, {
+          ac: taskAc,
+          priority: task.priority,
+          start: task.start,
+          end: task.end,
+        });
+        const onParentAbort = () => {
+          try { taskAc.abort(); } catch { /* ignore */ }
+        };
+        ac.signal.addEventListener('abort', onParentAbort);
+
+        try {
+          const fetched = await fetchByteRange(
+            url, task.start, task.end, 'include', taskAc.signal,
+          );
+          await withKeyLock(key, async () => {
+            const db = await openSparseDb();
+            await addChunkData(
+              db, songId, quality,
+              fetched.start, fetched.data, fetched.contentType, fetched.totalSize,
+            );
+          });
+        } catch (e: any) {
+          if (e?.name === 'AbortError') {
+            if (ac.signal.aborted) {
+              if (fillState.reason === 'ok') fillState.reason = 'cancelled';
+            } else if (fillState.reason === 'ok') {
+              fillState.reason = 'replan';
+            }
+            return;
+          }
+          if (e?.status === 401 || e?.status === 403) {
+            fillState.reason = 'need_token';
+            ac.abort();
+            return;
+          }
+          fillState.reason = 'error';
+          ac.abort();
+        } finally {
+          ac.signal.removeEventListener('abort', onParentAbort);
+          if (activeFillTaskAborts.get(key) === taskAc) activeFillTaskAborts.delete(key);
+          const meta = activeFillTaskMeta.get(key);
+          if (meta?.ac === taskAc) activeFillTaskMeta.delete(key);
+        }
+      }));
 
       if (fillState.reason === 'need_token') return 'need_token';
       if (fillState.reason === 'error') return 'error';
       if (fillState.reason === 'cancelled') return 'cancelled';
+      // replan：seek / playhead / 媒体让路抢占，继续 while
 
-      // 本轮任务跑完后尝试 finalize；未满则继续下一轮（播放路径可能又补了洞）
       const finalized = await withKeyLock(key, async () => {
         const db = await openSparseDb();
         return tryFinalize(db, songId, quality);
@@ -1158,11 +1521,19 @@ export async function fillSparseGaps(options: {
     return 'cancelled';
   } finally {
     if (activeFills.get(key) === ac) activeFills.delete(key);
+    if (activeFillTaskAborts.has(key)) activeFillTaskAborts.delete(key);
+    if (activeFillTaskMeta.has(key)) activeFillTaskMeta.delete(key);
   }
 }
 
 export function cancelSparseFill(songId: number, quality: string): void {
   const key = sparseKey(songId, quality);
+  const taskAc = activeFillTaskAborts.get(key);
+  if (taskAc) {
+    taskAc.abort();
+    activeFillTaskAborts.delete(key);
+  }
+  activeFillTaskMeta.delete(key);
   const ac = activeFills.get(key);
   if (ac) {
     ac.abort();
@@ -1184,7 +1555,21 @@ export const __sparseTestUtils = {
   coveredBytes,
   mergeRanges,
   planFillTasks,
+  planPriorityFillTasks,
+  resolveWindowBytes,
+  resolvePlayheadBytes,
+  setAudioPlayhead,
+  clearAudioPlayhead,
+  maybePreemptFillTask,
   createEagerSplitStreams,
   createEagerProgressivePump,
+  PLAY_FILL_CONCURRENCY,
+  URGENT_AHEAD_SEC,
+  AHEAD_SEC,
+  URGENT_FALLBACK_BYTES,
+  AHEAD_FALLBACK_BYTES,
+  SEEK_REEVAL_BYTES,
+  PLAYHEAD_PREEMPT_SEC,
+  SPARSE_PROTOCOL,
   PROGRESSIVE_EAGER_MAX_BYTES,
 };

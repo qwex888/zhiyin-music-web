@@ -183,28 +183,69 @@ export async function hasCachedCover(coverId: number): Promise<boolean> {
 
 export async function getCachedCoverObjectUrl(coverId: number): Promise<string | null> {
   const cache = await openCache(COVER_CACHE);
-  if (!cache) return null;
-  const res = await cache.match(coverCacheKey(coverId));
-  if (!res) return null;
-  const blob = await res.blob();
-  return URL.createObjectURL(blob);
+  if (cache) {
+    const res = await cache.match(coverCacheKey(coverId));
+    if (res) {
+      const blob = await res.blob();
+      return URL.createObjectURL(blob);
+    }
+  }
+  const mem = memoryCoverBlobs.get(coverId);
+  if (mem) return URL.createObjectURL(mem);
+  return null;
 }
 
-export async function cacheCoverFromUrl(url: string, coverId: number): Promise<void> {
-  if (await hasCachedCover(coverId)) return;
-  try {
-    const res = await fetch(url, { credentials: 'include' });
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const cache = await openCache(COVER_CACHE);
-    if (!cache) return;
-    await cache.put(
-      coverCacheKey(coverId),
-      new Response(blob, { headers: { 'Content-Type': blob.type || 'image/jpeg' } })
-    );
-  } catch {
-    // ignore
-  }
+/** 同 coverId 进行中的缓存请求（B：去重） */
+const coverInflight = new Map<number, Promise<boolean>>();
+/** Cache API 不可用时的内存兜底，避免二次网络 */
+const memoryCoverBlobs = new Map<number, Blob>();
+
+/**
+ * 拉取封面并写入 Cache（同 id 并发合并为一次 fetch）。
+ * @returns 是否已可从缓存/内存读取
+ */
+export async function cacheCoverFromUrl(url: string, coverId: number): Promise<boolean> {
+  if (!coverId) return false;
+  if (await hasCachedCover(coverId) || memoryCoverBlobs.has(coverId)) return true;
+
+  const existing = coverInflight.get(coverId);
+  if (existing) return existing;
+
+  const p = (async (): Promise<boolean> => {
+    try {
+      if (await hasCachedCover(coverId) || memoryCoverBlobs.has(coverId)) return true;
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) return false;
+      const blob = await res.blob();
+      const cache = await openCache(COVER_CACHE);
+      if (cache) {
+        await cache.put(
+          coverCacheKey(coverId),
+          new Response(blob, { headers: { 'Content-Type': blob.type || 'image/jpeg' } }),
+        );
+      } else {
+        memoryCoverBlobs.set(coverId, blob);
+      }
+      return true;
+    } catch {
+      return false;
+    } finally {
+      coverInflight.delete(coverId);
+    }
+  })();
+
+  coverInflight.set(coverId, p);
+  return p;
+}
+
+/** 确保封面已缓存并返回 blob: URL（仅一次网络；各调用方各自 createObjectURL） */
+export async function ensureCachedCoverObjectUrl(coverId: number): Promise<string | null> {
+  if (!coverId) return null;
+  const hit = await getCachedCoverObjectUrl(coverId);
+  if (hit) return hit;
+  const ok = await cacheCoverFromUrl(`/api/covers/${coverId}`, coverId);
+  if (!ok) return null;
+  return getCachedCoverObjectUrl(coverId);
 }
 
 export function cacheCoverInBackground(coverId: number): void {
@@ -213,6 +254,8 @@ export function cacheCoverInBackground(coverId: number): void {
 }
 
 export async function clearCoverCache(): Promise<void> {
+  memoryCoverBlobs.clear();
+  coverInflight.clear();
   if (!supportsCacheStorage()) return;
   await caches.delete(COVER_CACHE);
 }

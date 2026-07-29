@@ -313,13 +313,30 @@ export const usePlayerStore = defineStore('player', () => {
       });
 
       try {
-        // 路径 A：最多续 token 几次，覆盖大文件闲时补洞超过 TTL 的情况
+        // 路径 A：等 duration/playhead 就绪再开补洞，避免从文件头规划
+        {
+          const readyUntil = Date.now() + 5000;
+          while (!ac.signal.aborted && Date.now() < readyUntil) {
+            const d =
+              duration.value > 0 && isFinite(duration.value)
+                ? duration.value
+                : (currentSong.value?.id === songId ? (currentSong.value.duration_secs ?? 0) : 0);
+            if (d > 0 || progress.value > 0) break;
+            await new Promise((r) => setTimeout(r, 100));
+          }
+          postAudioPlayhead(true);
+        }
+
+        // 最多续 token 几次，覆盖大文件闲时补洞超过 TTL 的情况
         for (let attempt = 0; attempt < 8; attempt++) {
           if (ac.signal.aborted || currentSong.value?.id !== songId) return;
           if (await hasCachedAudio(songId, quality)) {
             void tryHotSwapToBlob(songId, quality);
             return;
           }
+
+          // 续签前先取消旧 fill，避免双 stoken 长时间并行
+          cancelSwDownload(songId, quality);
 
           const { data } = await musicApi.getStreamToken(songId, quality);
           const url = musicApi.buildStreamUrl(songId, quality, data.stream_token);
@@ -333,6 +350,7 @@ export const usePlayerStore = defineStore('player', () => {
           }
 
           const resultPromise = waitFillResult();
+          postAudioPlayhead(true);
           navigator.serviceWorker.controller.postMessage({
             type: 'fill-audio-gaps',
             songId,
@@ -347,8 +365,12 @@ export const usePlayerStore = defineStore('player', () => {
             void tryHotSwapToBlob(songId, quality);
             return;
           }
-          if (result === 'need_token') continue;
+          if (result === 'need_token') {
+            cancelSwDownload(songId, quality);
+            continue;
+          }
           if (result === 'error' && attempt < 7) {
+            cancelSwDownload(songId, quality);
             await new Promise((r) => setTimeout(r, 1000));
             continue;
           }
@@ -372,6 +394,31 @@ export const usePlayerStore = defineStore('player', () => {
         quality: songQuality,
       });
     }
+  };
+
+  let lastPlayheadPostAt = 0;
+  const PLAYHEAD_THROTTLE_MS = 500;
+
+  /** 路径 A：向 SW 上报播放头，驱动补洞优先级（STRM 走路径 B，无需上报） */
+  const postAudioPlayhead = (immediate = false) => {
+    const song = currentSong.value;
+    if (!song || isStrmSong(song)) return;
+    const ctrl = navigator.serviceWorker?.controller;
+    if (!ctrl) return;
+    const now = Date.now();
+    if (!immediate && now - lastPlayheadPostAt < PLAYHEAD_THROTTLE_MS) return;
+    lastPlayheadPostAt = now;
+    const dur =
+      duration.value > 0 && isFinite(duration.value)
+        ? duration.value
+        : (song.duration_secs ?? null);
+    ctrl.postMessage({
+      type: 'audio-playhead',
+      songId: song.id,
+      quality: quality.value,
+      positionSec: progress.value,
+      durationSec: dur,
+    });
   };
 
   const destroySound = () => {
@@ -1347,6 +1394,7 @@ export const usePlayerStore = defineStore('player', () => {
     }
     sound.seek(clampedTime);
     progress.value = clampedTime;
+    postAudioPlayhead(true);
 
     setTimeout(() => {
       if (!sound) return;
@@ -1370,6 +1418,7 @@ export const usePlayerStore = defineStore('player', () => {
     progressInterval = setInterval(() => {
       if (sound && isPlaying.value) {
         progress.value = sound.seek() as number;
+        postAudioPlayhead(false);
       }
     }, 250);
   };

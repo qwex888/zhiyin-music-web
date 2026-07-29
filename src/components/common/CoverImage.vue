@@ -53,7 +53,7 @@ watch(
 <template>
   <div class="cover-image">
     <img
-      v-if="hasValidCover && state !== 'error' && lazy"
+      v-if="hasValidCover && coverUrl && state !== 'error' && lazy"
       v-lazy="coverUrl"
       :class="['cover-img', imgClass, { 'is-loaded': state === 'loaded' }]"
       :alt="alt"
@@ -62,7 +62,7 @@ watch(
       @error="handleError"
     />
     <img
-      v-else-if="hasValidCover && state !== 'error'"
+      v-else-if="hasValidCover && coverUrl && state !== 'error'"
       :src="coverUrl"
       :class="['cover-img', imgClass, { 'is-loaded': state === 'loaded' }]"
       :alt="alt"

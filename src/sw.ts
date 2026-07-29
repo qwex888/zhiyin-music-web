@@ -6,12 +6,16 @@ import {
   handleSparseStreamRequest,
   fillSparseGaps,
   cancelSparseFill,
+  setAudioPlayhead,
+  SPARSE_PROTOCOL,
 } from './sw-sparse-audio';
 
 declare const self: ServiceWorkerGlobalScope;
 
 self.skipWaiting();
 clientsClaim();
+
+console.log(`[SW] sparse protocol ${SPARSE_PROTOCOL}`);
 
 // 预缓存静态资源（由 vite-plugin-pwa 注入清单，dev 模式为空数组）
 const manifest = self.__WB_MANIFEST;
@@ -37,6 +41,19 @@ self.addEventListener('message', (event) => {
     const songId = Number(data.songId);
     const quality = (data.quality || 'original') as string;
     if (Number.isFinite(songId)) cancelSparseFill(songId, quality);
+    return;
+  }
+
+  if (data.type === 'audio-playhead') {
+    const songId = Number(data.songId);
+    const quality = (data.quality || 'original') as string;
+    if (!Number.isFinite(songId)) return;
+    setAudioPlayhead(songId, quality, {
+      positionBytes: data.positionBytes != null ? Number(data.positionBytes) : null,
+      positionSec: data.positionSec != null ? Number(data.positionSec) : null,
+      durationSec: data.durationSec != null ? Number(data.durationSec) : null,
+      totalSize: data.totalSize != null ? Number(data.totalSize) : null,
+    });
     return;
   }
 
