@@ -1,7 +1,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import { Settings, Search, Globe, Palette, Monitor, Moon, Sun, RefreshCw, CheckCircle2, XCircle, Sliders, Save, HardDrive, Music, Shield, Plus, Trash2, Sparkles, Lock, Eye, EyeOff, KeyRound, ChevronRight, FlaskConical, FolderOpen, ArrowUpCircle, Star, MessageCircle, ExternalLink } from 'lucide-vue-next';
+import { Settings, Search, Globe, Palette, Monitor, Moon, Sun, RefreshCw, CheckCircle2, XCircle, Sliders, Save, HardDrive, Music, Shield, Plus, Trash2, Sparkles, Lock, Eye, EyeOff, KeyRound, ChevronRight, FlaskConical, FolderOpen, ArrowUpCircle, Star, MessageCircle, ExternalLink, Image } from 'lucide-vue-next';
 import DirBrowser from '@/components/common/DirBrowser.vue';
 import TipBanner from '@/components/common/TipBanner.vue';
 import { useTheme } from '@/composables/useTheme';
@@ -122,6 +122,14 @@ const formState = reactive({
     metadata_format: "json" as const,
     sidecar_for_all: false
   },
+  covers: {
+    warmup_enabled: true,
+    warmup_mode: 'daily' as 'daily' | 'interval' | 'window',
+    warmup_at: '03:00',
+    warmup_interval_hours: 24,
+    warmup_window_start: '02:00',
+    warmup_window_end: '06:00',
+  },
   subsonic: {
     enabled: true
   },
@@ -148,6 +156,7 @@ const takeFormSnapshot = () => {
     recommend: formState.recommend,
     scan: formState.scan,
     scrape: formState.scrape,
+    covers: formState.covers,
     security: formState.security,
     subsonic: formState.subsonic,
     transcode: formState.transcode,
@@ -163,6 +172,7 @@ const hasConfigChanged = computed(() => {
     recommend: formState.recommend,
     scan: formState.scan,
     scrape: formState.scrape,
+    covers: formState.covers,
     security: formState.security,
     subsonic: formState.subsonic,
     transcode: formState.transcode,
@@ -258,6 +268,7 @@ const fetchConfig = async () => {
       Object.assign(formState.transcode, data.transcode);
       Object.assign(formState.web, data.web);
       if (data.scrape) Object.assign(formState.scrape, data.scrape);
+      if (data.covers) Object.assign(formState.covers, data.covers);
       if (typeof data.scrape?.enabled === 'boolean') setEnabledLocal(data.scrape.enabled);
 
       corsOriginsInput.value = (data.security?.cors_origins || []).join(', ');
@@ -299,6 +310,7 @@ const saveConfig = async () => {
           .filter(Boolean)
       },
       scrape: formState.scrape,
+      covers: formState.covers,
       subsonic: formState.subsonic,
       transcode: formState.transcode,
       web: formState.web
@@ -921,6 +933,82 @@ onUnmounted(() => {
                   class="w-full p-2 bg-bg-elevate rounded border border-border text-text-primary focus:border-primary outline-none"
                 />
               </div>
+            </div>
+          </div>
+
+          <!-- Cover Warmup Settings -->
+          <div class="bg-bg-surface rounded-2xl border border-border overflow-hidden shadow-sm p-6 space-y-4">
+            <h4 class="font-medium text-text-primary flex items-center gap-2">
+              <Image class="w-4 h-4 text-text-secondary" />
+              {{ t('settings.cover_warmup_settings') }}
+            </h4>
+            <p class="text-[10px] text-text-tertiary -mt-2">{{ t('settings.cover_warmup_desc') }}</p>
+            <p class="text-[10px] text-emerald-600/80">{{ t('settings.cover_warmup_hot_reload') }}</p>
+
+            <div class="space-y-4 text-sm">
+              <div class="flex items-center justify-between">
+                <div>
+                  <label class="text-text-primary">{{ t('settings.cover_warmup_enabled') }}</label>
+                  <p class="text-[10px] text-text-tertiary">{{ t('settings.cover_warmup_enabled_desc') }}</p>
+                </div>
+                <input
+                  v-model="formState.covers.warmup_enabled"
+                  type="checkbox"
+                  class="w-4 h-4 rounded border-border text-primary focus:ring-primary"
+                />
+              </div>
+
+              <div>
+                <label class="block text-text-secondary text-xs mb-1">{{ t('settings.cover_warmup_mode') }}</label>
+                <select
+                  v-model="formState.covers.warmup_mode"
+                  class="w-full p-2 bg-bg-elevate rounded border border-border text-text-primary focus:border-primary outline-none"
+                >
+                  <option value="daily">{{ t('settings.cover_warmup_mode_daily') }}</option>
+                  <option value="interval">{{ t('settings.cover_warmup_mode_interval') }}</option>
+                  <option value="window">{{ t('settings.cover_warmup_mode_window') }}</option>
+                </select>
+              </div>
+
+              <div v-if="formState.covers.warmup_mode === 'daily'">
+                <label class="block text-text-secondary text-xs mb-1">{{ t('settings.cover_warmup_at') }}</label>
+                <input
+                  v-model="formState.covers.warmup_at"
+                  type="time"
+                  class="w-full p-2 bg-bg-elevate rounded border border-border text-text-primary focus:border-primary outline-none"
+                />
+                <p class="text-[10px] text-text-tertiary mt-1">{{ t('settings.cover_warmup_at_desc') }}</p>
+              </div>
+
+              <div v-if="formState.covers.warmup_mode === 'interval' || formState.covers.warmup_mode === 'window'">
+                <label class="block text-text-secondary text-xs mb-1">{{ t('settings.cover_warmup_interval') }}</label>
+                <input
+                  v-model.number="formState.covers.warmup_interval_hours"
+                  type="number"
+                  min="1"
+                  class="w-full p-2 bg-bg-elevate rounded border border-border text-text-primary focus:border-primary outline-none"
+                />
+              </div>
+
+              <template v-if="formState.covers.warmup_mode === 'window'">
+                <div>
+                  <label class="block text-text-secondary text-xs mb-1">{{ t('settings.cover_warmup_window_start') }}</label>
+                  <input
+                    v-model="formState.covers.warmup_window_start"
+                    type="time"
+                    class="w-full p-2 bg-bg-elevate rounded border border-border text-text-primary focus:border-primary outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-text-secondary text-xs mb-1">{{ t('settings.cover_warmup_window_end') }}</label>
+                  <input
+                    v-model="formState.covers.warmup_window_end"
+                    type="time"
+                    class="w-full p-2 bg-bg-elevate rounded border border-border text-text-primary focus:border-primary outline-none"
+                  />
+                  <p class="text-[10px] text-text-tertiary mt-1">{{ t('settings.cover_warmup_window_desc') }}</p>
+                </div>
+              </template>
             </div>
           </div>
 

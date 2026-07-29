@@ -82,6 +82,16 @@ export interface ScrapeConfig {
   sidecar_for_all: boolean;
 }
 
+export interface CoversConfig {
+  warmup_enabled: boolean;
+  /** daily | interval | window */
+  warmup_mode: 'daily' | 'interval' | 'window' | string;
+  warmup_at: string;
+  warmup_interval_hours: number;
+  warmup_window_start: string;
+  warmup_window_end: string;
+}
+
 export interface SystemConfig {
   database: DatabaseConfig & ConfigItem<DatabaseConfig>;
   logging: LoggingConfig & ConfigItem<LoggingConfig>;
@@ -89,6 +99,7 @@ export interface SystemConfig {
   recommend: RecommendConfig & ConfigItem<RecommendConfig>;
   scan: ScanConfig & ConfigItem<ScanConfig>;
   scrape: ScrapeConfig & ConfigItem<ScrapeConfig>;
+  covers: CoversConfig & ConfigItem<CoversConfig>;
   security: SecurityConfig & ConfigItem<SecurityConfig>;
   server: ServerConfig & ConfigItem<ServerConfig>;
   subsonic: SubsonicConfig & ConfigItem<SubsonicConfig>;
@@ -102,6 +113,7 @@ export interface UpdateConfigParams {
   recommend?: Partial<RecommendConfig>;
   scan?: Partial<ScanConfig>;
   scrape?: Partial<ScrapeConfig>;
+  covers?: Partial<CoversConfig>;
   security?: Partial<SecurityConfig>;
   subsonic?: Partial<SubsonicConfig>;
   transcode?: Partial<TranscodeConfig>;

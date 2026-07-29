@@ -273,10 +273,12 @@
     "scan_errors": "{count} errors",
     "scan_phase": {
       "idle": "Idle",
-      "walking": "Scanning filesystem",
-      "hashing": "Computing fingerprints",
+      "discovering": "Discovering files",
+      "detecting": "Detecting changes",
       "processing": "Processing files",
-      "done": "Scan complete"
+      "cleaning": "Cleaning deleted records",
+      "completed": "Scan complete",
+      "failed": "Scan failed"
     },
     "version": "Version",
     "subtitle": "Customize your experience and manage system preferences.",
@@ -410,7 +412,22 @@
     "scrape_enabled_desc": "Disabled by default; enabling will also turn on built-in music sources",
     "scrape_compliance_note": "This feature calls third-party music platform APIs. Use it only for personal library maintenance under applicable laws. By enabling it, you acknowledge the risks and accept responsibility.",
     "scrape_enabled_builtins": "Online scraping enabled, and {count} built-in sources turned on",
-    "scrape_enable_builtins_failed": "Online scraping enabled, but enabling built-in sources failed. Please retry later."
+    "scrape_enable_builtins_failed": "Online scraping enabled, but enabling built-in sources failed. Please retry later.",
+    "cover_warmup_settings": "Idle Cover Warmup",
+    "cover_warmup_desc": "Pre-generate cover thumbnails during off-peak hours to reduce decode pressure on weak devices",
+    "cover_warmup_hot_reload": "Hot-reload supported — no restart required after saving",
+    "cover_warmup_enabled": "Enable idle warmup",
+    "cover_warmup_enabled_desc": "On by default; when off, scan completion still warms new covers",
+    "cover_warmup_mode": "Schedule mode",
+    "cover_warmup_mode_daily": "Daily at fixed time",
+    "cover_warmup_mode_interval": "Every N hours",
+    "cover_warmup_mode_window": "Interval within time window",
+    "cover_warmup_at": "Run at",
+    "cover_warmup_at_desc": "Local timezone, HH:MM",
+    "cover_warmup_interval": "Interval (hours)",
+    "cover_warmup_window_start": "Window start",
+    "cover_warmup_window_end": "Window end",
+    "cover_warmup_window_desc": "May cross midnight, e.g. 22:00–06:00"
   },
   "auth": {
     "login": "Login",

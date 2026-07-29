@@ -162,7 +162,14 @@ export interface Stats {
   top_content: TopContentStats;
 }
 
-export type ScanPhase = 'idle' | 'walking' | 'hashing' | 'processing' | 'done';
+export type ScanPhase =
+  | 'idle'
+  | 'discovering'
+  | 'detecting'
+  | 'processing'
+  | 'cleaning'
+  | 'completed'
+  | 'failed';
 
 export interface ScanSnapshot {
   added: number;
