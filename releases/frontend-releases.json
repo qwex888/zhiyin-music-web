@@ -1,5 +1,35 @@
 [
   {
+    "version": "v0.8.0",
+    "published_at": "2026-07-30T09:34:29Z",
+    "summary": "8 项新功能",
+    "changes": {
+      "feature": [
+        "feat(genre): 优化未分类歌曲拉取逻辑",
+        "feat(readme): 更新中英文 README 文件，添加新功能描述",
+        "feat(scrape): 添加自动刮削写入模式选择功能",
+        "feat(music): 添加歌曲标签更新和封面上传功能",
+        "feat(genres): 添加风格管理功能及相关视图",
+        "feat(settings): 添加封面预热设置及国际化支持",
+        "feat(e2e): 添加弱网缓存测试及相关功能优化",
+        "feat(update): 添加更新引导功能及相关国际化支持"
+      ],
+      "fix": [],
+      "perf": [],
+      "refactor": [],
+      "docs": [
+        "docs(songs): 澄清详情弹窗适配与保存流程",
+        "docs(songs): 添加歌曲详情与元数据编辑设计"
+      ],
+      "i18n": [],
+      "build": [],
+      "ci": [],
+      "style": [],
+      "test": [],
+      "chore": []
+    }
+  },
+  {
     "version": "v0.7.1",
     "published_at": "2026-07-28T08:09:45Z",
     "summary": "4 项新功能、1 项修复",
