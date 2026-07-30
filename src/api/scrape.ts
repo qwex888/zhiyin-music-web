@@ -78,10 +78,11 @@ export const scrapeApi = {
     });
   },
 
-  autoScrape: (songIds: number[], minScore?: number) => {
+  autoScrape: (songIds: number[], minScore?: number, writeMode?: 'fill_empty' | 'overwrite') => {
     return api.post<AutoScrapeResponse>('/scrape/auto', {
       song_ids: songIds,
       min_score: minScore,
+      write_mode: writeMode ?? 'fill_empty',
     });
   },
 

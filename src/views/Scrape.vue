@@ -201,17 +201,34 @@ const isAutoScraping = ref(false);
 const autoScrapeMinScore = ref(50);
 let autoScrapeTimer: ReturnType<typeof setInterval> | null = null;
 
-const handleAutoScrape = async () => {
+const autoWriteModeModal = reactive({
+  visible: false,
+  mode: 'fill_empty' as 'fill_empty' | 'overwrite',
+});
+
+const showAutoWriteModeModal = async () => {
   if (selectedSongIds.value.size === 0) return;
   await ensureLoaded();
   if (getEnabledKeys().length === 0) {
     toast.error(t('scrape.no_enabled_sources'));
     return;
   }
+  autoWriteModeModal.mode = 'fill_empty';
+  autoWriteModeModal.visible = true;
+};
+
+const closeAutoWriteModeModal = () => {
+  autoWriteModeModal.visible = false;
+};
+
+const handleAutoScrape = async () => {
+  if (selectedSongIds.value.size === 0) return;
+  const writeMode = autoWriteModeModal.mode;
+  closeAutoWriteModeModal();
   isAutoScraping.value = true;
   try {
     const ids = [...selectedSongIds.value];
-    await scrapeApi.autoScrape(ids, autoScrapeMinScore.value);
+    await scrapeApi.autoScrape(ids, autoScrapeMinScore.value, writeMode);
     startAutoScrapePolling();
   } catch (e: unknown) {
     const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -1041,7 +1058,7 @@ onUnmounted(() => {
             <Search v-else class="hidden md:block w-4 h-4" />
             {{ isCreatingScrape ? t('scrape.creating') : t('scrape.create_scrape') }}
           </button>
-          <button @click="handleAutoScrape" :disabled="selectedSongIds.size === 0 || isAutoScraping"
+          <button @click="showAutoWriteModeModal" :disabled="selectedSongIds.size === 0 || isAutoScraping"
             class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all" :class="selectedSongIds.size > 0 && !isAutoScraping
               ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/20'
               : 'bg-bg-elevate text-text-tertiary cursor-not-allowed border border-border'">
@@ -1693,6 +1710,62 @@ onUnmounted(() => {
               class="flex-1 py-2 rounded-xl text-sm font-medium transition-all bg-red-500 hover:bg-red-600 text-white">
               <RefreshCw v-if="isCancelling" class="w-4 h-4 animate-spin mx-auto" />
               <span v-else>{{ cancelModal.isBatch ? t('scrape.batch_cancel') : t('scrape.cancel') }}</span>
+            </button>
+          </div>
+        </div>
+      </transition>
+    </Teleport>
+
+    <!-- 一键自动刮削写入模式确认 -->
+    <Teleport to="body">
+      <transition name="fade">
+        <div v-if="autoWriteModeModal.visible" class="fixed inset-0 z-[110] bg-black/50 backdrop-blur-sm"
+          @click="closeAutoWriteModeModal"></div>
+      </transition>
+      <transition name="slide-up">
+        <div v-if="autoWriteModeModal.visible"
+          class="fixed inset-x-4 bottom-4 top-auto md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[440px] z-[111] bg-bg-surface rounded-2xl border border-border shadow-2xl overflow-hidden">
+          <div class="flex items-center gap-3 p-5 border-b border-border">
+            <div class="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+              <Zap class="w-5 h-5 text-amber-500" />
+            </div>
+            <div>
+              <h3 class="font-medium text-text-primary text-sm">{{ t('scrape.auto_scrape_mode_title') }}</h3>
+              <p class="text-xs text-text-secondary mt-1 leading-relaxed">
+                {{ t('scrape.auto_scrape_mode_desc') }}
+              </p>
+            </div>
+          </div>
+          <div class="p-4 space-y-2">
+            <button type="button" @click="autoWriteModeModal.mode = 'fill_empty'"
+              class="w-full text-left p-3 rounded-xl border transition-all"
+              :class="autoWriteModeModal.mode === 'fill_empty'
+                ? 'border-amber-500 bg-amber-500/10'
+                : 'border-border bg-bg-elevate hover:border-amber-500/40'">
+              <div class="text-sm font-medium text-text-primary">{{ t('scrape.auto_scrape_mode_fill_empty') }}</div>
+              <div class="text-xs text-text-secondary mt-1 leading-relaxed">
+                {{ t('scrape.auto_scrape_mode_fill_empty_desc') }}
+              </div>
+            </button>
+            <button type="button" @click="autoWriteModeModal.mode = 'overwrite'"
+              class="w-full text-left p-3 rounded-xl border transition-all"
+              :class="autoWriteModeModal.mode === 'overwrite'
+                ? 'border-amber-500 bg-amber-500/10'
+                : 'border-border bg-bg-elevate hover:border-amber-500/40'">
+              <div class="text-sm font-medium text-text-primary">{{ t('scrape.auto_scrape_mode_overwrite') }}</div>
+              <div class="text-xs text-text-secondary mt-1 leading-relaxed">
+                {{ t('scrape.auto_scrape_mode_overwrite_desc') }}
+              </div>
+            </button>
+          </div>
+          <div class="flex gap-3 p-4 pt-0">
+            <button @click="closeAutoWriteModeModal"
+              class="flex-1 py-2 rounded-xl text-sm font-medium bg-bg-elevate text-text-primary hover:bg-bg-main transition-colors">
+              {{ t('scrape.close') }}
+            </button>
+            <button @click="handleAutoScrape"
+              class="flex-1 py-2 rounded-xl text-sm font-medium transition-all bg-amber-500 hover:bg-amber-600 text-white">
+              {{ t('scrape.auto_scrape_mode_start') }}
             </button>
           </div>
         </div>
