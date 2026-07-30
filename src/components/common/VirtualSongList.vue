@@ -3,7 +3,7 @@ import { ref, toRefs, onMounted, onUnmounted, watch, computed, nextTick, type Co
 import { useVirtualizer } from '@tanstack/vue-virtual';
 import { onClickOutside, useMediaQuery } from '@vueuse/core';
 import type { Song, RecentSong } from '@/types';
-import { Play, Pause, Clock, MoreHorizontal, Loader2, AlertCircle, RefreshCw, Inbox, ListPlus, Search, Info, Cloud, Mic2, ListMusic, X } from 'lucide-vue-next';
+import { Play, Pause, Clock, MoreHorizontal, Loader2, AlertCircle, RefreshCw, Inbox, ListPlus, Search, Info, Cloud, Mic2, ListMusic, X, Pencil, Tags } from 'lucide-vue-next';
 import { isStrmSong } from '@/types';
 import { usePlayerStore } from '@/stores/player';
 import { useLibraryStore } from '@/stores/library';
@@ -13,6 +13,7 @@ import { useToast } from '@/composables/useToast';
 import dayjs from 'dayjs';
 import CoverImage from '@/components/common/CoverImage.vue';
 import AddToPlaylistModal from '@/components/common/AddToPlaylistModal.vue';
+import SongDetailModal from '@/components/common/SongDetailModal.vue';
 import { getCachedSongIds } from '@/offline/media-cache';
 
 export interface MenuAction {
@@ -27,6 +28,7 @@ const defaultMenuActions: MenuAction[] = [
   { key: 'addToPlaylist', icon: ListMusic, labelKey: 'songs.actions.add_to_playlist' },
   { key: 'scrape', icon: Search, labelKey: 'songs.actions.scrape' },
   { key: 'viewDetails', icon: Info, labelKey: 'songs.actions.view_details' },
+  { key: 'editMetadata', icon: Pencil, labelKey: 'songs.actions.edit_metadata' },
   { key: 'searchLyrics', icon: Mic2, labelKey: 'songs.actions.search_lyrics' },
 ];
 
@@ -45,6 +47,8 @@ const props = withDefaults(defineProps<{
   enableNavigation?: boolean;
   /** 是否启用多选（默认开启） */
   enableSelection?: boolean;
+  /** 多选操作条是否显示「批量编辑风格」 */
+  enableBatchGenre?: boolean;
 }>(), {
   isLoading: false,
   hasMore: false,
@@ -56,6 +60,7 @@ const props = withDefaults(defineProps<{
   itemHeight: 72,
   enableNavigation: false,
   enableSelection: true,
+  enableBatchGenre: false,
 });
 
 const emit = defineEmits<{
@@ -65,6 +70,7 @@ const emit = defineEmits<{
   (e: 'menuAction', action: string, song: Song): void;
   (e: 'navigateArtist', artistId: number | null | undefined): void;
   (e: 'navigateAlbum', albumId: number | null | undefined): void;
+  (e: 'batchGenre', songIds: number[]): void;
 }>();
 
 const { songs } = toRefs(props);
@@ -103,7 +109,7 @@ const showActionBar = computed(() => props.enableSelection && selectedCount.valu
 const effectiveMenuActions = computed(() => {
   const actions = props.menuActions ?? defaultMenuActions;
   if (authStore.isAdmin) return actions;
-  const blocked = new Set(props.adminOnlyActions ?? ['scrape', 'searchLyrics']);
+  const blocked = new Set(props.adminOnlyActions ?? ['scrape', 'searchLyrics', 'editMetadata']);
   return actions.filter(a => !blocked.has(a.key));
 });
 
@@ -280,6 +286,11 @@ const batchAddToPlaylist = () => {
   showBatchPlaylist.value = true;
 };
 
+const batchEditGenre = () => {
+  if (selectedCount.value === 0) return;
+  emit('batchGenre', [...selectedIds.value]);
+};
+
 const onBatchPlaylistDone = () => {
   clearSelection();
 };
@@ -312,8 +323,27 @@ const toggleMenu = (songId: number, event: MouseEvent) => {
   activeMenuSongId.value = songId;
 };
 
+const showSongDetail = ref(false);
+const detailSongId = ref<number | null>(null);
+const detailMode = ref<'view' | 'edit'>('view');
+
+const openSongDetail = (song: Song, mode: 'view' | 'edit') => {
+  detailSongId.value = song.id;
+  detailMode.value = mode;
+  showSongDetail.value = true;
+};
+
 const handleMenuAction = (action: string, song: Song | RecentSong) => {
   activeMenuSongId.value = null;
+  if (action === 'viewDetails') {
+    openSongDetail(song as Song, 'view');
+    return;
+  }
+  if (action === 'editMetadata') {
+    if (!authStore.isAdmin) return;
+    openSongDetail(song as Song, 'edit');
+    return;
+  }
   emit('menuAction', action, song as Song);
 };
 
@@ -355,6 +385,10 @@ const handlePlay = (song: Song | RecentSong) => {
 
 onUnmounted(() => {
   clearLongPress();
+});
+
+defineExpose({
+  clearSelection,
 });
 </script>
 
@@ -590,18 +624,26 @@ onUnmounted(() => {
               {{ t('songs.selected_count', { count: selectedCount }) }}
             </span>
             <button
-              class="flex-1 flex items-center justify-center gap-1.5 py-2.5 md:py-2 rounded-xl text-sm font-medium text-text-primary bg-bg-elevate hover:bg-bg-main border border-border transition-colors"
+              class="flex-1 flex items-center justify-center gap-0 md:gap-1.5 py-2.5 md:py-2 px-1.5 md:px-0 rounded-xl text-xs md:text-sm font-medium text-text-primary bg-bg-elevate hover:bg-bg-main border border-border transition-colors"
               @click="batchAddToQueue"
             >
-              <ListPlus class="w-4 h-4" />
+              <ListPlus class="hidden md:block w-4 h-4 flex-shrink-0" />
               <span class="truncate">{{ t('songs.batch_add_to_queue') }}</span>
             </button>
             <button
-              class="flex-1 flex items-center justify-center gap-1.5 py-2.5 md:py-2 rounded-xl text-sm font-medium text-white bg-primary-gradient hover:brightness-110 transition-all"
+              class="flex-1 flex items-center justify-center gap-0 md:gap-1.5 py-2.5 md:py-2 px-1.5 md:px-0 rounded-xl text-xs md:text-sm font-medium text-white bg-primary-gradient hover:brightness-110 transition-all"
               @click="batchAddToPlaylist"
             >
-              <ListMusic class="w-4 h-4" />
+              <ListMusic class="hidden md:block w-4 h-4 flex-shrink-0" />
               <span class="truncate">{{ t('songs.batch_add_to_playlist') }}</span>
+            </button>
+            <button
+              v-if="enableBatchGenre"
+              class="flex-1 flex items-center justify-center gap-0 md:gap-1.5 py-2.5 md:py-2 px-1.5 md:px-0 rounded-xl text-xs md:text-sm font-medium text-text-primary bg-bg-elevate hover:bg-bg-main border border-border transition-colors"
+              @click="batchEditGenre"
+            >
+              <Tags class="hidden md:block w-4 h-4 flex-shrink-0" />
+              <span class="truncate">{{ t('genres.batch_edit') }}</span>
             </button>
             <button
               class="p-2.5 rounded-xl text-text-secondary hover:text-text-primary hover:bg-bg-elevate border border-border transition-colors flex-shrink-0"
@@ -619,6 +661,11 @@ onUnmounted(() => {
       v-model="showBatchPlaylist"
       :song-ids="[...selectedIds]"
       @done="onBatchPlaylistDone"
+    />
+    <SongDetailModal
+      v-model="showSongDetail"
+      v-model:mode="detailMode"
+      :song-id="detailSongId"
     />
   </div>
 </template>

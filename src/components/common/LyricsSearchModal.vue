@@ -8,17 +8,22 @@ import { songEvents } from '@/utils/songEvents';
 import { usePlayerStore } from '@/stores/player';
 import { useScrapeSources } from '@/composables/useScrapeSources';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: boolean;
   songId: number;
   songTitle?: string;
   songArtist?: string;
   songAlbum?: string;
   songDuration?: number | null;
-}>();
+  /** immediate: 直接写回；defer: 仅 emit 给父组件暂存 */
+  applyMode?: 'immediate' | 'defer';
+}>(), {
+  applyMode: 'immediate',
+});
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void;
+  (e: 'apply', lyrics: string): void;
 }>();
 
 const { t } = useI18n();
@@ -305,6 +310,12 @@ const handleSearch = async () => {
 const handleReplace = async () => {
   const result = currentResult.value;
   if (!result?.lyrics_full || isReplacing.value) return;
+  if (props.applyMode === 'defer') {
+    emit('apply', result.lyrics_full);
+    toast.success(t('lyrics.staged'));
+    close();
+    return;
+  }
   isReplacing.value = true;
   try {
     await musicApi.replaceLyrics(props.songId, result.lyrics_full);
@@ -378,10 +389,20 @@ const sourceBadgeStyle = (source: string) => getSourceBadgeStyle(source);
 <template>
   <Teleport to="body">
     <transition name="fade">
-      <div v-if="modelValue" class="fixed inset-0 z-[200] flex md:items-center md:justify-center" @click.self="close">
-        <div class="hidden md:block absolute inset-0 bg-black/50 backdrop-blur-sm" @click="close"></div>
+      <div
+        v-if="modelValue"
+        class="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm md:flex md:items-center md:justify-center md:p-4"
+        @click.self="close"
+      >
+        <div
+          class="absolute inset-x-0 bottom-0 max-md:h-[85vh] max-md:max-h-[85vh] flex flex-col bg-bg-surface border border-border rounded-t-2xl shadow-2xl overflow-hidden
+                 md:relative md:inset-auto md:h-[85vh] md:w-full md:max-w-[560px] md:rounded-2xl"
+          @click.stop
+        >
+          <div class="md:hidden flex justify-center pt-2 pb-1 flex-shrink-0">
+            <div class="w-10 h-1 rounded-full bg-text-tertiary/30"></div>
+          </div>
 
-        <div class="relative w-full h-full md:w-[560px] md:h-[85vh] bg-bg-surface md:rounded-2xl md:border border-border shadow-2xl flex flex-col z-10 overflow-hidden">
           <!-- Header -->
           <div class="flex items-center justify-between px-4 py-3 md:px-5 md:py-4 border-b border-border flex-shrink-0">
             <div class="flex items-center gap-2">
@@ -607,7 +628,7 @@ const sourceBadgeStyle = (source: string) => getSourceBadgeStyle(source);
               >
                 <Loader2 v-if="isReplacing" class="w-4 h-4 animate-spin" />
                 <Check v-else class="w-4 h-4" />
-                {{ isReplacing ? t('lyrics.replacing') : t('lyrics.replace') }}
+                {{ isReplacing ? t('lyrics.replacing') : (applyMode === 'defer' ? t('lyrics.apply_stage') : t('lyrics.replace')) }}
               </button>
             </div>
           </div>

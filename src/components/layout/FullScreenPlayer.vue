@@ -4,7 +4,7 @@ import { usePlayerStore } from '@/stores/player';
 import { useAuthStore } from '@/stores/auth';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
-import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, ChevronDown, Music2, ListMusic, Volume2, Mic2, List, Cloud, MoreHorizontal, Info, Share2, Loader2, Search } from 'lucide-vue-next';
+import { Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle, ChevronDown, Music2, ListMusic, Volume2, Mic2, List, Cloud, MoreHorizontal, Info, Share2, Loader2, Search, Pencil } from 'lucide-vue-next';
 import { isStrmSong } from '@/types';
 import { musicApi } from '@/api/music';
 import { scrapeApi } from '@/api/scrape';
@@ -14,6 +14,7 @@ import { songEvents } from '@/utils/songEvents';
 import CoverImage from '@/components/common/CoverImage.vue';
 import LyricsSearchModal from '@/components/common/LyricsSearchModal.vue';
 import AddToPlaylistModal from '@/components/common/AddToPlaylistModal.vue';
+import SongDetailModal from '@/components/common/SongDetailModal.vue';
 import { useToast } from '@/composables/useToast';
 
 const props = defineProps<{
@@ -54,6 +55,15 @@ const close = () => {
 const showMoreMenu = ref(false);
 const showLyricsSearch = ref(false);
 const showAddToPlaylist = ref(false);
+const showSongDetail = ref(false);
+const songDetailMode = ref<'view' | 'edit'>('view');
+
+const openSongDetail = (mode: 'view' | 'edit') => {
+  if (!playerStore.currentSong) return;
+  showMoreMenu.value = false;
+  songDetailMode.value = mode;
+  showSongDetail.value = true;
+};
 
 const isCurrentCached = ref(false);
 const checkCached = async () => {
@@ -564,10 +574,19 @@ const seekToLyric = (time: number) => {
                   <span>{{ t('lyrics.search_replace') }}</span>
                 </button>
                 <button
+                  @click="openSongDetail('view')"
                   class="flex items-center gap-3 w-full px-4 py-3 text-sm text-text-primary hover:bg-bg-elevate transition-colors"
                 >
                   <Info class="w-4 h-4" />
                   <span>{{ t('songs.details') }}</span>
+                </button>
+                <button
+                  v-if="authStore.isAdmin"
+                  @click="openSongDetail('edit')"
+                  class="flex items-center gap-3 w-full px-4 py-3 text-sm text-text-primary hover:bg-bg-elevate transition-colors"
+                >
+                  <Pencil class="w-4 h-4" />
+                  <span>{{ t('songs.actions.edit_metadata') }}</span>
                 </button>
                 <button
                   class="flex items-center gap-3 w-full px-4 py-3 text-sm text-text-primary hover:bg-bg-elevate transition-colors"
@@ -814,6 +833,11 @@ const seekToLyric = (time: number) => {
   <AddToPlaylistModal
     v-model="showAddToPlaylist"
     :song-ids="playerStore.currentSong ? [playerStore.currentSong.id] : []"
+  />
+  <SongDetailModal
+    v-model="showSongDetail"
+    v-model:mode="songDetailMode"
+    :song-id="playerStore.currentSong?.id ?? null"
   />
 </template>
 

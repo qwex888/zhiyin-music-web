@@ -53,9 +53,6 @@ const handleMenuAction = (action: string, song: Song) => {
       addToPlaylistIds.value = [song.id];
       showAddToPlaylist.value = true;
       break;
-    case 'viewDetails':
-      router.push(`/songs/${song.id}`);
-      break;
   }
 };
 

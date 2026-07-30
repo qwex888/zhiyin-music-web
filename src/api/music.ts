@@ -84,6 +84,47 @@ export const musicApi = {
   replaceLyrics: (id: number, lyrics: string) => {
     return api.post<{ success: boolean; method: string }>(`/songs/${id}/lyrics/replace`, { lyrics });
   },
+  updateSongTags: (id: number, body: {
+    title?: string;
+    artist?: string;
+    album?: string;
+    year?: number;
+    track_no?: number;
+    genre?: string;
+    lyrics?: string;
+    cover_url?: string;
+  }) => {
+    return api.put<Song & {
+      fields_updated: string[];
+      lyrics_method?: string | null;
+      cover_updated: boolean;
+      artist_name?: string;
+      album_name?: string;
+      genres?: string[];
+      genre_locked?: boolean;
+    }>(`/songs/${id}/tags`, body);
+  },
+  uploadSongCover: (id: number, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post<Song & { cover_id: number; artist_name?: string; album_name?: string }>(
+      `/songs/${id}/cover`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+  },
+  searchCovers: (id: number, params: { title?: string; artist?: string; album?: string }) => {
+    return api.post<{
+      results: Array<{
+        source: string;
+        song_id: string;
+        title: string;
+        artist: string | null;
+        album: string | null;
+        cover_url: string;
+      }>;
+    }>(`/songs/${id}/covers/search`, params);
+  },
   reportMetadata: (id: number, data: {
     duration_secs?: number;
     bitrate?: number;

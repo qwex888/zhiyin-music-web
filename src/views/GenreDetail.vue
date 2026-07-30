@@ -7,8 +7,10 @@ import { useI18n } from 'vue-i18n';
 import { usePlayerStore } from '@/stores/player';
 import { useToast } from '@/composables/useToast';
 import CoverImage from '@/components/common/CoverImage.vue';
-import { ArrowLeft, Play, Loader2, Tags } from 'lucide-vue-next';
+import VirtualSongList from '@/components/common/VirtualSongList.vue';
 import BatchGenreModal from '@/components/common/BatchGenreModal.vue';
+import AddToPlaylistModal from '@/components/common/AddToPlaylistModal.vue';
+import { ArrowLeft, Play, Loader2, Tags } from 'lucide-vue-next';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -22,13 +24,16 @@ const genreId = computed(() => Number(route.params.id));
 const genre = ref<GenreSummary | null>(null);
 const songs = ref<Song[]>([]);
 const isLoading = ref(true);
-const selectedIds = ref<Set<number>>(new Set());
 const showBatch = ref(false);
+const batchSongIds = ref<number[]>([]);
+const showAddToPlaylist = ref(false);
+const addToPlaylistIds = ref<number[]>([]);
+const listRef = ref<{ clearSelection?: (exit?: boolean) => void } | null>(null);
 
 watch(
-  () => route.params.id,
+  () => [route.name, route.params.id] as const,
   () => {
-    if (!isUncategorized.value) fetchData();
+    fetchData();
   },
 );
 
@@ -61,36 +66,62 @@ const playAll = async () => {
   await playerStore.setQueueAndPlay(songs.value);
 };
 
-const toggleSelect = (id: number) => {
-  const next = new Set(selectedIds.value);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
-  selectedIds.value = next;
+const handlePlay = (song: Song) => {
+  playerStore.setQueue(songs.value);
+  playerStore.play(song);
 };
 
-const openBatch = () => {
-  if (selectedIds.value.size === 0) {
-    toast.info(t('genres.select_songs_first'));
-    return;
+const handleMenuAction = (action: string, song: Song) => {
+  switch (action) {
+    case 'play':
+      handlePlay(song);
+      break;
+    case 'addToQueue':
+      playerStore.addToQueue(song);
+      toast.success(t('common.add_to_queue'));
+      break;
+    case 'addToPlaylist':
+      addToPlaylistIds.value = [song.id];
+      showAddToPlaylist.value = true;
+      break;
   }
+};
+
+const onBatchGenre = (ids: number[]) => {
+  batchSongIds.value = ids;
   showBatch.value = true;
+};
+
+const onBatchDone = (payload?: { primary_genre_id?: number | null; genres?: string[] }) => {
+  showBatch.value = false;
+  listRef.value?.clearSelection?.();
+  const nextId = payload?.primary_genre_id;
+  if (nextId && nextId !== genreId.value && !isUncategorized.value) {
+    router.replace({ name: 'GenreDetail', params: { id: nextId } });
+  } else {
+    fetchData();
+  }
 };
 
 onMounted(fetchData);
 </script>
 
 <template>
-  <div class="p-4 md:p-8 pb-24 space-y-6">
-    <button type="button" class="inline-flex items-center gap-1 text-sm text-text-secondary hover:text-primary" @click="router.push({ name: 'Genres' })">
-      <ArrowLeft class="w-4 h-4" /> {{ t('genres.back') }}
-    </button>
+  <div class="flex flex-col h-full overflow-hidden pb-safe">
+    <div class="flex-none px-4 md:px-8 pt-4 md:pt-6 space-y-4">
+      <button
+        type="button"
+        class="inline-flex items-center gap-1 text-sm text-text-secondary hover:text-primary"
+        @click="router.push({ name: 'Genres' })"
+      >
+        <ArrowLeft class="w-4 h-4" /> {{ t('genres.back') }}
+      </button>
 
-    <div v-if="isLoading" class="flex justify-center py-20">
-      <Loader2 class="w-8 h-8 animate-spin text-primary" />
-    </div>
+      <div v-if="isLoading" class="flex justify-center py-20">
+        <Loader2 class="w-8 h-8 animate-spin text-primary" />
+      </div>
 
-    <template v-else-if="genre">
-      <header class="flex items-start gap-4">
+      <header v-else-if="genre" class="flex items-start gap-4 pb-2">
         <div class="w-24 h-24 rounded-xl overflow-hidden bg-bg-elevate flex-shrink-0">
           <CoverImage :cover-id="genre.cover_id ?? undefined" size="medium" class="w-full h-full object-cover" />
         </div>
@@ -101,58 +132,39 @@ onMounted(fetchData);
           </h1>
           <p class="text-sm text-text-tertiary">{{ t('genres.song_count', { count: genre.song_count }) }}</p>
           <div class="flex flex-wrap gap-2">
-            <button type="button" class="px-3 py-1.5 rounded-lg bg-primary text-white text-sm inline-flex items-center gap-1" @click="playAll">
+            <button
+              type="button"
+              class="px-3 py-1.5 rounded-lg bg-primary text-white text-sm inline-flex items-center gap-1"
+              @click="playAll"
+            >
               <Play class="w-4 h-4" /> {{ t('genres.play_all') }}
             </button>
-            <button type="button" class="px-3 py-1.5 rounded-lg border border-border text-sm text-text-secondary" @click="openBatch">
-              {{ t('genres.batch_edit') }}
-            </button>
           </div>
+          <p class="text-[11px] text-text-tertiary">{{ t('genres.select_hint') }}</p>
         </div>
       </header>
+    </div>
 
-      <div class="space-y-1">
-        <button
-          v-for="song in songs"
-          :key="song.id"
-          type="button"
-          class="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-bg-elevate text-left"
-          @click="playerStore.play(song)"
-        >
-          <input
-            type="checkbox"
-            class="w-4 h-4"
-            :checked="selectedIds.has(song.id)"
-            @click.stop="toggleSelect(song.id)"
-          />
-          <div class="w-10 h-10 rounded overflow-hidden bg-bg-elevate flex-shrink-0">
-            <CoverImage :cover-id="song.cover_id" size="thumb" class="w-full h-full object-cover" />
-          </div>
-          <div class="min-w-0 flex-1">
-            <p class="text-sm text-text-primary truncate">{{ song.title || song.file_path }}</p>
-            <p class="text-xs text-text-tertiary truncate">
-              {{ song.artist_name || '—' }}
-              <span v-if="song.genres?.length"> · {{ song.genres.join(', ') }}</span>
-            </p>
-          </div>
-        </button>
-      </div>
-    </template>
+    <div v-if="!isLoading && genre" class="flex-1 overflow-hidden px-4 md:px-8 pb-24 min-h-0">
+      <VirtualSongList
+        ref="listRef"
+        :songs="songs"
+        :is-loading="false"
+        :has-error="false"
+        :has-more="false"
+        enable-batch-genre
+        @play="handlePlay"
+        @menu-action="handleMenuAction"
+        @batch-genre="onBatchGenre"
+      />
+    </div>
 
+    <AddToPlaylistModal v-model="showAddToPlaylist" :song-ids="addToPlaylistIds" />
     <BatchGenreModal
       v-if="showBatch"
-      :song-ids="[...selectedIds]"
+      :song-ids="batchSongIds"
       @close="showBatch = false"
-      @done="(payload) => {
-        showBatch = false;
-        selectedIds.clear();
-        const nextId = payload?.primary_genre_id;
-        if (nextId && nextId !== genreId && !isUncategorized) {
-          router.replace({ name: 'GenreDetail', params: { id: nextId } });
-        } else {
-          fetchData();
-        }
-      }"
+      @done="onBatchDone"
     />
   </div>
 </template>

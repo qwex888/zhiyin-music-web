@@ -69,8 +69,6 @@ const handleMenuAction = async (action: string, song: Song) => {
         toast.error(t('common.error'));
       }
       break;
-    case 'viewDetails':
-      break;
   }
 };
 

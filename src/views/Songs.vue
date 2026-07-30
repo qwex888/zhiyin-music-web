@@ -233,8 +233,6 @@ const handleMenuAction = async (action: string, song: Song) => {
         toast.error(t('common.error'));
       }
       break;
-    case 'viewDetails':
-      break;
     case 'searchLyrics':
       await ensureScrapeFeature();
       if (!scrapeEnabled.value) {
