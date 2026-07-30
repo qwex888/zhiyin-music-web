@@ -18,6 +18,9 @@ export interface ListQueryParams {
   sort_order?: string;
   artist_id?: number;
   album_id?: number;
+  genre_id?: number;
+  /** 离线本地筛选时按风格名匹配（在线以 genre_id 为准） */
+  genre_name?: string;
 }
 
 function paginate<T>(
@@ -71,6 +74,15 @@ async function querySongsLocal(
         matchQuery(artist, q) ||
         matchQuery(album, q)
       );
+    });
+  }
+
+  if (params.genre_name?.trim()) {
+    const g = params.genre_name.trim().toLowerCase();
+    items = items.filter((s) => {
+      if (s.genres?.some((x) => x.toLowerCase() === g)) return true;
+      if (s.genre?.toLowerCase().includes(g)) return true;
+      return false;
     });
   }
 

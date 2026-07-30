@@ -7,6 +7,7 @@ import {
   Eye, RefreshCw, X, FileText, Tag, Library, Zap, ScrollText, XCircle, Trash2,
 } from 'lucide-vue-next';
 import { scrapeApi } from '@/api/scrape';
+import { genresApi } from '@/api/genres';
 import { musicApi } from '@/api/music';
 import { useToast } from '@/composables/useToast';
 import { useLibraryStore } from '@/stores/library';
@@ -21,6 +22,7 @@ import type {
 } from '@/types/scrape';
 import type { Song } from '@/types';
 import SelectableSongList from '@/components/common/SelectableSongList.vue';
+import GenreChips from '@/components/common/GenreChips.vue';
 import { useScrapeSources } from '@/composables/useScrapeSources';
 import { useScrapeFeature } from '@/composables/useScrapeFeature';
 import ScrapeDisabledPanel from '@/components/common/ScrapeDisabledPanel.vue';
@@ -85,8 +87,12 @@ const metadataFilterOptions: { key: MetadataFilter; labelKey: string }[] = [
   { key: 'missing_artist', labelKey: 'scrape.filter_missing_artist' },
   { key: 'missing_album', labelKey: 'scrape.filter_missing_album' },
   { key: 'missing_year', labelKey: 'scrape.filter_missing_year' },
+  { key: 'missing_genre', labelKey: 'scrape.filter_missing_genre' },
   { key: 'missing_duration', labelKey: 'scrape.filter_missing_duration' },
 ];
+
+const songMissingGenre = (s: Song) =>
+  !(s.genres && s.genres.length > 0) && !s.genre;
 
 const filteredLibrarySongs = computed(() => {
   let songs = librarySongs.value;
@@ -97,7 +103,7 @@ const filteredLibrarySongs = computed(() => {
         case 'missing_artist': return !s.artist && !s.artist_name && !s.artist_id;
         case 'missing_album': return !s.album && !s.album_name && !s.album_id;
         case 'missing_year': return !s.year;
-        case 'missing_genre': return !s.genre;
+        case 'missing_genre': return songMissingGenre(s);
         case 'missing_duration': return !s.duration_secs;
         default: return true;
       }
@@ -120,7 +126,7 @@ const filterCounts = computed(() => {
     missing_artist: songs.filter(s => !s.artist && !s.artist_name && !s.artist_id).length,
     missing_album: songs.filter(s => !s.album && !s.album_name && !s.album_id).length,
     missing_year: songs.filter(s => !s.year).length,
-    missing_genre: songs.filter(s => !s.genre).length,
+    missing_genre: songs.filter(s => songMissingGenre(s)).length,
     missing_duration: songs.filter(s => !s.duration_secs).length,
   } as Record<string, number>;
 });
@@ -306,6 +312,52 @@ const toggleMobileSearchMeta = (sessionId: number) => {
 
 const isApplying = ref<number | null>(null);
 const isConfirming = ref(false);
+
+/** 确认区风格芯片：当前展开会话的已选风格 */
+const confirmGenres = ref<string[]>([]);
+const genreSuggestions = ref<string[]>([]);
+const savingConfirmGenres = ref(false);
+
+const splitGenreField = (raw?: string | null): string[] => {
+  if (!raw?.trim()) return [];
+  return raw
+    .split(/[;|,/、，]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+};
+
+const loadGenreSuggestions = async () => {
+  try {
+    const { data } = await genresApi.list({ limit: 40 });
+    genreSuggestions.value = data.items.map((g) => g.name);
+  } catch {
+    genreSuggestions.value = [];
+  }
+};
+
+const loadConfirmGenresFromSession = async (sessionId: number) => {
+  confirmGenres.value = [];
+  try {
+    const { data } = await scrapeApi.getSessionDetail(sessionId);
+    const latest = data.resolved[0];
+    if (!latest) return;
+    const fields = JSON.parse(latest.fields_json) as CandidateFields;
+    confirmGenres.value = splitGenreField(fields.genre);
+  } catch {
+    /* ignore */
+  }
+};
+
+const persistConfirmGenres = async (sessionId: number) => {
+  savingConfirmGenres.value = true;
+  try {
+    await scrapeApi.overrideFields(sessionId, {
+      genre: confirmGenres.value.length ? confirmGenres.value.join('; ') : '',
+    });
+  } finally {
+    savingConfirmGenres.value = false;
+  }
+};
 
 // ── 批量选择 & 取消/确认弹窗 ──────────────────────────────────
 const selectedSessionIds = ref<Set<number>>(new Set());
@@ -579,14 +631,24 @@ const toggleSession = (sessionId: number) => {
   if (expandedSessionId.value === sessionId) {
     expandedSessionId.value = null;
     searchResults.value = [];
+    confirmGenres.value = [];
   } else {
     expandedSessionId.value = sessionId;
     searchResults.value = [];
-    const song = songMap.value.get(sessions.value.find(s => s.id === sessionId)?.song_id ?? 0);
+    const session = sessions.value.find(s => s.id === sessionId);
+    const song = songMap.value.get(session?.song_id ?? 0);
     if (song) {
       searchForm.value.title = song.title || '';
       searchForm.value.artist = song.artist || song.artist_name || '';
       searchForm.value.album = song.album || song.album_name || '';
+      confirmGenres.value = song.genres?.length
+        ? [...song.genres]
+        : splitGenreField(song.genre);
+    } else {
+      confirmGenres.value = [];
+    }
+    if (session?.has_resolved) {
+      void loadConfirmGenresFromSession(sessionId);
     }
   }
 };
@@ -665,7 +727,18 @@ const handleApply = async (sessionId: number, candidateIdx: number) => {
     }
     await scrapeApi.applyCandidate(sessionId, candidate.id);
     toast.success(t('scrape.applied'));
+    try {
+      const fields: CandidateFields = JSON.parse(candidate.fields_json);
+      if (fields.genre) {
+        confirmGenres.value = splitGenreField(fields.genre);
+      }
+    } catch { /* ignore */ }
     await fetchSessions();
+    if (confirmGenres.value.length > 0) {
+      await persistConfirmGenres(sessionId).catch(() => { /* ignore */ });
+    } else {
+      await loadConfirmGenresFromSession(sessionId);
+    }
   } catch {
     toast.error(t('common.error'));
   } finally {
@@ -680,10 +753,12 @@ const handleConfirm = async (session: ScrapeSession) => {
   }
   isConfirming.value = true;
   try {
+    await persistConfirmGenres(session.id);
     await scrapeApi.confirm(session.id, session.version);
     toast.success(t('scrape.confirmed'));
     expandedSessionId.value = null;
     searchResults.value = [];
+    confirmGenres.value = [];
     await fetchSessions();
   } catch (e: unknown) {
     const msg = (e as { response?: { data?: string } })?.response?.data;
@@ -866,6 +941,7 @@ onMounted(async () => {
   searchForm.value.sources = getEnabledKeys();
   fetchAllLibrarySongs();
   fetchSessions();
+  loadGenreSuggestions();
   libraryStore.fetchArtists({ limit: 1000 });
   libraryStore.fetchAlbums({ limit: 1000 });
   // 检查是否有正在进行的自动刮削
@@ -1022,6 +1098,13 @@ onUnmounted(() => {
               {{ t(opt.labelKey) }}
               <span v-if="filterCounts[opt.key]" class="ml-1 opacity-70">{{ filterCounts[opt.key] }}</span>
               <span v-else-if="opt.key === 'all'" class="ml-1 opacity-70">{{ librarySongs.length }}</span>
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1 rounded-full text-xs font-medium border border-dashed border-border text-text-tertiary hover:text-primary hover:border-primary/40 whitespace-nowrap flex-shrink-0"
+              @click="router.push({ name: 'GenreUncategorized' })"
+            >
+              {{ t('scrape.view_uncategorized') }}
             </button>
           </div>
         </div>
@@ -1229,6 +1312,75 @@ onUnmounted(() => {
                       </button>
                     </div>
                   </div>
+
+                  <!-- 确认区：风格芯片 + 确认写入（不依赖当前搜索结果） -->
+                  <div
+                    v-if="session.status === 'needs_review' && expandedSessionId === session.id"
+                    class="space-y-3"
+                  >
+                    <div
+                      v-if="session.has_resolved"
+                      class="p-3 rounded-xl border border-border bg-bg-elevate/50 space-y-2"
+                      @click.stop
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <label class="text-xs font-medium text-text-secondary flex items-center gap-1.5">
+                          <Tag class="w-3.5 h-3.5" />
+                          {{ t('scrape.confirm_genres') }}
+                        </label>
+                        <button
+                          type="button"
+                          class="text-[10px] text-primary hover:underline"
+                          @click="router.push({ name: 'GenreUncategorized' })"
+                        >
+                          {{ t('scrape.view_uncategorized') }}
+                        </button>
+                      </div>
+                      <GenreChips v-model="confirmGenres" :suggestions="genreSuggestions" />
+                      <p class="text-[10px] text-text-tertiary">{{ t('scrape.confirm_genres_hint') }}</p>
+                    </div>
+
+                    <div class="flex items-center justify-end gap-2 px-1">
+                      <button
+                        v-if="session.has_resolved"
+                        @click.stop="handleConfirm(session)"
+                        :disabled="isConfirming || savingConfirmGenres"
+                        class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all"
+                        :class="!isConfirming
+                          ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20'
+                          : 'bg-bg-elevate text-text-tertiary cursor-not-allowed'"
+                      >
+                        <RefreshCw v-if="isConfirming" class="w-4 h-4 animate-spin" />
+                        <CheckCircle2 v-else class="w-4 h-4" />
+                        {{ isConfirming ? t('scrape.confirming') : t('scrape.confirm_with_data') }}
+                      </button>
+                      <button
+                        v-else
+                        @click.stop="handleConfirm(session)"
+                        :disabled="isConfirming"
+                        class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border border-amber-500/20"
+                      >
+                        <AlertCircle class="w-4 h-4" />
+                        {{ t('scrape.confirm_with_data') }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div
+                    v-if="session.status === 'organizing' && expandedSessionId === session.id"
+                    class="flex items-center gap-2 text-sm text-indigo-500 px-1"
+                  >
+                    <RefreshCw class="w-4 h-4 animate-spin" />
+                    {{ t('scrape.status_organizing') }}
+                  </div>
+                  <div
+                    v-if="session.status === 'organize_failed' && expandedSessionId === session.id"
+                    class="flex items-center gap-2 text-sm text-rose-500 px-1"
+                  >
+                    <XCircle class="w-4 h-4" />
+                    {{ t('scrape.status_organize_failed') }}
+                  </div>
+
                   <!-- 搜索结果 -->
                   <div v-if="searchResults.length > 0" class="space-y-3">
                     <div class="flex items-center justify-between px-2">
@@ -1236,44 +1388,8 @@ onUnmounted(() => {
                         {{ t('scrape.search_results') }}
                         <span class="text-text-tertiary font-normal ml-1">({{ searchResults.length }})</span>
                       </h4>
-                      <div class="flex items-center gap-2">
-
-                        <!-- 确认按钮 -->
-                        <div v-if="session.status === 'needs_review'">
-                          <button v-if="session.has_resolved" @click.stop="handleConfirm(session)"
-                            :disabled="isConfirming"
-                            class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all"
-                            :class="!isConfirming
-                              ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20'
-                              : 'bg-bg-elevate text-text-tertiary cursor-not-allowed'">
-                            <RefreshCw v-if="isConfirming" class="w-4 h-4 animate-spin" />
-                            <CheckCircle2 v-else class="w-4 h-4" />
-                            {{ isConfirming ? t('scrape.confirming') : t('scrape.confirm_with_data') }}
-                          </button>
-                          <button v-else @click.stop="handleConfirm(session)" :disabled="isConfirming"
-                            class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border border-amber-500/20">
-                            <AlertCircle class="w-4 h-4" />
-                            {{ t('scrape.confirm_with_data') }}
-                          </button>
-                        </div>
-
-                        <!-- 写入中状态 -->
-                        <div v-if="session.status === 'organizing'" class="pt-2 border-t border-border">
-                          <div class="flex items-center gap-2 text-sm text-indigo-500">
-                            <RefreshCw class="w-4 h-4 animate-spin" />
-                            {{ t('scrape.status_organizing') }}
-                          </div>
-                        </div>
-
-                        <!-- 写入失败状态 -->
-                        <div v-if="session.status === 'organize_failed'" class="pt-2 border-t border-border">
-                          <div class="flex items-center gap-2 text-sm text-rose-500">
-                            <XCircle class="w-4 h-4" />
-                            {{ t('scrape.status_organize_failed') }}
-                          </div>
-                        </div>
-                      </div>
                     </div>
+
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3"
                       :class="{ 'max-h-[348px] overflow-y-auto pr-1': searchResults.length > 3 }">
                       <div v-for="(candidate, idx) in searchResults" :key="`${candidate.source}-${candidate.song_id}`"

@@ -38,6 +38,21 @@ const router = createRouter({
       component: () => import('@/views/Artists.vue'),
     },
     {
+      path: '/genres',
+      name: 'Genres',
+      component: () => import('@/views/Genres.vue'),
+    },
+    {
+      path: '/genres/uncategorized',
+      name: 'GenreUncategorized',
+      component: () => import('@/views/GenreDetail.vue'),
+    },
+    {
+      path: '/genres/:id',
+      name: 'GenreDetail',
+      component: () => import('@/views/GenreDetail.vue'),
+    },
+    {
       path: '/artists/:id',
       name: 'ArtistDetail',
       component: () => import('@/views/ArtistDetail.vue'),

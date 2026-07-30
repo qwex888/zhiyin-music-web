@@ -9,6 +9,7 @@ import { Search, Filter, ArrowUpDown, X } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { scrapeApi } from '@/api/scrape';
+import { genresApi, type GenreSummary } from '@/api/genres';
 import { useScrapeFeature } from '@/composables/useScrapeFeature';
 import { useToast } from '@/composables/useToast';
 import VirtualSongList from '@/components/common/VirtualSongList.vue';
@@ -56,11 +57,14 @@ const setSort = (field: string) => {
 const showFilterMenu = ref(false);
 const filterArtistId = ref<number | undefined>(undefined);
 const filterAlbumId = ref<number | undefined>(undefined);
+const filterGenreId = ref<number | undefined>(undefined);
+const genreOptions = ref<GenreSummary[]>([]);
 
 const activeFilterCount = computed(() => {
   let count = 0;
   if (filterArtistId.value) count++;
   if (filterAlbumId.value) count++;
+  if (filterGenreId.value) count++;
   return count;
 });
 
@@ -76,9 +80,15 @@ const filterAlbumName = computed(() => {
   return album?.name || '';
 });
 
+const filterGenreName = computed(() => {
+  if (!filterGenreId.value) return '';
+  return genreOptions.value.find((g) => g.id === filterGenreId.value)?.name || '';
+});
+
 const clearFilters = () => {
   filterArtistId.value = undefined;
   filterAlbumId.value = undefined;
+  filterGenreId.value = undefined;
   showFilterMenu.value = false;
   resetAndFetch();
 };
@@ -86,6 +96,7 @@ const clearFilters = () => {
 const setFilterArtist = (artistId: number | undefined) => {
   filterArtistId.value = artistId;
   filterAlbumId.value = undefined;
+  filterGenreId.value = undefined;
   showFilterMenu.value = false;
   resetAndFetch();
 };
@@ -93,6 +104,15 @@ const setFilterArtist = (artistId: number | undefined) => {
 const setFilterAlbum = (albumId: number | undefined) => {
   filterAlbumId.value = albumId;
   filterArtistId.value = undefined;
+  filterGenreId.value = undefined;
+  showFilterMenu.value = false;
+  resetAndFetch();
+};
+
+const setFilterGenre = (genreId: number | undefined) => {
+  filterGenreId.value = genreId;
+  filterArtistId.value = undefined;
+  filterAlbumId.value = undefined;
   showFilterMenu.value = false;
   resetAndFetch();
 };
@@ -106,6 +126,8 @@ const buildParams = (pageOffset: number) => {
     sort_order?: string;
     artist_id?: number;
     album_id?: number;
+    genre_id?: number;
+    genre_name?: string;
   } = {
     limit: PAGE_SIZE,
     offset: pageOffset,
@@ -117,6 +139,10 @@ const buildParams = (pageOffset: number) => {
   }
   if (filterArtistId.value) params.artist_id = filterArtistId.value;
   if (filterAlbumId.value) params.album_id = filterAlbumId.value;
+  if (filterGenreId.value) {
+    params.genre_id = filterGenreId.value;
+    params.genre_name = filterGenreName.value || undefined;
+  }
   return params;
 };
 
@@ -239,6 +265,9 @@ onMounted(() => {
   fetchSongs();
   libraryStore.fetchArtists({ limit: 1000 });
   libraryStore.fetchAlbums({ limit: 1000 });
+  genresApi.list({ limit: 100 }).then(({ data }) => {
+    genreOptions.value = data.items;
+  }).catch(() => { /* 离线时可忽略 */ });
 });
 </script>
 
@@ -300,6 +329,10 @@ onMounted(() => {
                  <span class="text-primary truncate">{{ t('songs.album') }}: {{ filterAlbumName }}</span>
                  <button @click="setFilterAlbum(undefined)" class="text-primary hover:text-primary-hover"><X class="w-3.5 h-3.5" /></button>
                </div>
+               <div v-if="filterGenreName" class="flex items-center justify-between px-3 py-2 bg-primary/10 rounded-lg text-sm">
+                 <span class="text-primary truncate">{{ t('songs.genre') }}: {{ filterGenreName }}</span>
+                 <button @click="setFilterGenre(undefined)" class="text-primary hover:text-primary-hover"><X class="w-3.5 h-3.5" /></button>
+               </div>
 
                <!-- Artist list -->
                <div class="pt-1">
@@ -323,6 +356,18 @@ onMounted(() => {
                    class="w-full text-left px-3 py-1.5 text-sm rounded-lg hover:bg-bg-elevate transition-colors truncate"
                    :class="filterAlbumId === album.id ? 'text-primary bg-primary/5' : 'text-text-secondary'"
                  >{{ album.name }}</button>
+               </div>
+
+               <!-- Genre list -->
+               <div class="pt-1 border-t border-border/50">
+                 <div class="px-3 py-1 text-xs text-text-tertiary font-medium uppercase">{{ t('songs.genre') }}</div>
+                 <button
+                   v-for="genre in genreOptions.slice(0, 30)"
+                   :key="genre.id"
+                   @click="setFilterGenre(genre.id)"
+                   class="w-full text-left px-3 py-1.5 text-sm rounded-lg hover:bg-bg-elevate transition-colors truncate"
+                   :class="filterGenreId === genre.id ? 'text-primary bg-primary/5' : 'text-text-secondary'"
+                 >{{ genre.name }} <span class="text-text-tertiary text-xs">({{ genre.song_count }})</span></button>
                </div>
              </div>
            </div>

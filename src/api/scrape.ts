@@ -96,4 +96,12 @@ export const scrapeApi = {
   getSessionDetail: (sessionId: number) => {
     return api.get<SessionDetailResponse>(`/scrape/sessions/${sessionId}/detail`);
   },
+
+  /** 确认前覆盖已应用候选字段（风格等） */
+  overrideFields: (sessionId: number, body: { genre?: string }) => {
+    return api.post<{ session_id: number; updated: boolean; genre?: string | null }>(
+      `/scrape/sessions/${sessionId}/override-fields`,
+      body,
+    );
+  },
 };

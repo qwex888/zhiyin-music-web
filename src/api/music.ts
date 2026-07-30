@@ -7,7 +7,7 @@ interface StreamTokenResponse {
 }
 
 export const musicApi = {
-  getSongs: (params: { limit?: number; offset?: number; q?: string; sort_by?: string; sort_order?: string; artist_id?: number; album_id?: number } = {}) => {
+  getSongs: (params: { limit?: number; offset?: number; q?: string; sort_by?: string; sort_order?: string; artist_id?: number; album_id?: number; genre_id?: number } = {}) => {
     return api.get<PaginatedResponse<Song>>('/songs', { params });
   },
   getSong: (id: number) => {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import GithubIcon from '@/components/common/GithubIcon.vue';
-import { Home, Library, Disc, Mic2, History, ListMusic, Settings, ChevronLeft, BarChart2, LogOut, Search, FolderTree, HardDrive, Sun, Moon, Shield, Database } from 'lucide-vue-next';
+import { Home, Library, Disc, Mic2, History, ListMusic, Settings, ChevronLeft, BarChart2, LogOut, Search, FolderTree, HardDrive, Sun, Moon, Shield, Database, Tags } from 'lucide-vue-next';
 import { useTheme } from '@/composables/useTheme';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -38,6 +38,7 @@ const menuItems = computed((): MenuItem[] => {
     { name: t('nav.songs'), path: '/songs', icon: Library },
     { name: t('nav.albums'), path: '/albums', icon: Disc },
     { name: t('nav.artists'), path: '/artists', icon: Mic2 },
+    { name: t('nav.genres'), path: '/genres', icon: Tags },
     { name: t('nav.history'), path: '/history', icon: History },
     { name: t('nav.playlists'), path: '/playlists', icon: ListMusic },
   ];

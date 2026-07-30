@@ -23,6 +23,7 @@ export interface CandidateFields {
   album?: string;
   album_img?: string;
   year?: string;
+  genre?: string;
 }
 
 export interface ScrapeCandidate {

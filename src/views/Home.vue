@@ -5,9 +5,10 @@ import { statsApi } from '@/api/stats';
 import { historyApi } from '@/api/history';
 import { musicApi } from '@/api/music';
 import { playlistsApi } from '@/api/playlists';
+import { genresApi, type GenreSummary } from '@/api/genres';
 import type { Stats, Song, RecentSong } from '@/types';
 import type { PlaylistSummary } from '@/types/playlist';
-import { Play, Clock, BarChart3, Disc, Music2, Users, Inbox, AlertCircle, RefreshCw, WifiOff, Settings, ChevronRight, Sparkles, ListMusic, Plus } from 'lucide-vue-next';
+import { Play, Clock, BarChart3, Disc, Music2, Users, Inbox, AlertCircle, RefreshCw, WifiOff, Settings, ChevronRight, Sparkles, ListMusic, Plus, Tags } from 'lucide-vue-next';
 import { usePlayerStore } from '@/stores/player';
 import { useI18n } from 'vue-i18n';
 import CoverImage from '@/components/common/CoverImage.vue';
@@ -28,6 +29,7 @@ const stats = ref<Stats | null>(null);
 const recentSongs = ref<RecentSong[]>([]);
 const recentlyAdded = ref<Song[]>([]);
 const myPlaylists = ref<PlaylistSummary[]>([]);
+const hotGenres = ref<GenreSummary[]>([]);
 const recommendations = ref<Song[]>([]);
 const isLoading = ref(true);
 const hasError = ref(false);
@@ -83,6 +85,13 @@ const fetchData = async () => {
       myPlaylists.value = [];
     }
 
+    try {
+      const { data: genrePage } = await genresApi.list({ limit: 12, offset: 0 });
+      hotGenres.value = (genrePage.items ?? []).filter((g) => g.song_count > 0);
+    } catch {
+      hotGenres.value = [];
+    }
+
     const { data: recs } = await musicApi.getRecommendations();
     if (recs && recs.length > 0) {
       recommendations.value = recs;
@@ -136,6 +145,14 @@ const goPlaylists = () => {
 
 const openPlaylist = (id: number) => {
   router.push({ name: 'PlaylistDetail', params: { id } });
+};
+
+const goGenres = () => {
+  router.push({ name: 'Genres' });
+};
+
+const openGenre = (id: number) => {
+  router.push({ name: 'GenreDetail', params: { id } });
 };
 </script>
 
@@ -296,6 +313,35 @@ const openPlaylist = (id: number) => {
         </div>
       </section>
 
+
+      <!-- 热门风格 -->
+      <section v-if="hotGenres.length > 0" class="space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-semibold text-text-primary flex items-center gap-2">
+            <Tags class="w-5 h-5 text-primary" />
+            {{ t('genres.hot_on_home') }}
+          </h2>
+          <button type="button" class="text-sm text-text-secondary hover:text-primary inline-flex items-center gap-1" @click="goGenres">
+            {{ t('genres.view_all') }}
+            <ChevronRight class="w-4 h-4" />
+          </button>
+        </div>
+        <div class="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+          <button
+            v-for="g in hotGenres"
+            :key="g.id"
+            type="button"
+            class="flex-shrink-0 w-28 text-left group"
+            @click="openGenre(g.id)"
+          >
+            <div class="aspect-square rounded-xl overflow-hidden bg-bg-elevate mb-2 border border-border group-hover:border-primary/40">
+              <CoverImage :cover-id="g.cover_id ?? undefined" size="medium" class="w-full h-full object-cover" />
+            </div>
+            <p class="text-sm font-medium text-text-primary truncate group-hover:text-primary">{{ g.name }}</p>
+            <p class="text-[10px] text-text-tertiary">{{ t('genres.song_count', { count: g.song_count }) }}</p>
+          </button>
+        </div>
+      </section>
 
       <!-- 我的歌单 -->
       <section class="space-y-4">

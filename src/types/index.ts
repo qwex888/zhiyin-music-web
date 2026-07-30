@@ -27,6 +27,8 @@ export interface Song {
   disc_no?: number;
   year?: number;
   genre?: string;
+  genres?: string[];
+  genre_locked?: boolean;
   cover_id?: number;
   file_path: string;
   file_size?: number;

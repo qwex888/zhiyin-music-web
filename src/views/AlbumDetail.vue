@@ -3,13 +3,14 @@ import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { queryBatchSongs, queryAlbumById } from '@/offline/library-query';
 import type { Song, Album } from '@/types';
-import { ArrowLeft, Play, Disc, Loader2 } from 'lucide-vue-next';
+import { ArrowLeft, Play, Disc, Loader2, Tags } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { usePlayerStore } from '@/stores/player';
 import { useToast } from '@/composables/useToast';
 import CoverImage from '@/components/common/CoverImage.vue';
 import VirtualSongList from '@/components/common/VirtualSongList.vue';
 import AddToPlaylistModal from '@/components/common/AddToPlaylistModal.vue';
+import BatchGenreModal from '@/components/common/BatchGenreModal.vue';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -22,6 +23,7 @@ const songs = ref<Song[]>([]);
 const isLoading = ref(true);
 const showAddToPlaylist = ref(false);
 const addToPlaylistIds = ref<number[]>([]);
+const showApplyGenre = ref(false);
 
 const goBack = () => {
   router.back();
@@ -121,13 +123,23 @@ onMounted(() => {
           <p class="text-sm text-text-tertiary">
             {{ album.year || t('albums.unknown_year') }} · {{ t('albums.count', { count: songs.length }) }}
           </p>
-          <button
-            @click="playAll"
-            class="mt-3 flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary-hover text-white rounded-full font-medium text-sm shadow-lg shadow-primary/20 transition-all active:scale-95"
-          >
-            <Play class="w-4 h-4 fill-current" />
-            {{ t('albums.play_all') }}
-          </button>
+          <div class="mt-3 flex flex-wrap items-center justify-center sm:justify-start gap-2">
+            <button
+              @click="playAll"
+              class="flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary-hover text-white rounded-full font-medium text-sm shadow-lg shadow-primary/20 transition-all active:scale-95"
+            >
+              <Play class="w-4 h-4 fill-current" />
+              {{ t('albums.play_all') }}
+            </button>
+            <button
+              type="button"
+              class="flex items-center gap-2 px-4 py-2.5 rounded-full font-medium text-sm border border-border text-text-secondary hover:text-primary hover:border-primary/40 transition-colors"
+              @click="showApplyGenre = true"
+            >
+              <Tags class="w-4 h-4" />
+              {{ t('genres.apply_to_album') }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -144,5 +156,11 @@ onMounted(() => {
       </div>
     </template>
     <AddToPlaylistModal v-model="showAddToPlaylist" :song-ids="addToPlaylistIds" />
+    <BatchGenreModal
+      v-if="showApplyGenre && album"
+      :album-id="album.id"
+      @close="showApplyGenre = false"
+      @done="() => { showApplyGenre = false; fetchAlbumDetail(); }"
+    />
   </div>
 </template>
