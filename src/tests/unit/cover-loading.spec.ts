@@ -195,6 +195,55 @@ describe('封面网络加载：多次请求防护', () => {
     w2.unmount();
   });
 
+  it('CoverImage lazy：未进入可视区不发 fetch，相交后再请求', async () => {
+    const fetcher = stubFetch();
+    const CoverImage = (await import('@/components/common/CoverImage.vue')).default;
+
+    const holder: {
+      cb: ((entries: IntersectionObserverEntry[], observer: IntersectionObserver) => void) | null;
+    } = { cb: null };
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+
+    class MockIO implements Pick<IntersectionObserver, 'observe' | 'unobserve' | 'disconnect' | 'takeRecords'> {
+      constructor(
+        cb: (entries: IntersectionObserverEntry[], observer: IntersectionObserver) => void,
+      ) {
+        holder.cb = cb;
+      }
+      observe = observe;
+      unobserve = vi.fn();
+      disconnect = disconnect;
+      takeRecords = () => [] as IntersectionObserverEntry[];
+      root: Element | Document | null = null;
+      rootMargin = '';
+      thresholds: readonly number[] = [];
+    }
+    vi.stubGlobal('IntersectionObserver', MockIO as unknown as typeof IntersectionObserver);
+
+    const w = mount(CoverImage, {
+      props: { coverId: 4242, lazy: true },
+      global: { directives: { lazy: lazyStub } },
+    });
+    await nextTick();
+    await flushPromises();
+
+    expect(observe).toHaveBeenCalled();
+    expect(fetcher.getCount()).toBe(0);
+    expect(holder.cb).toBeTypeOf('function');
+
+    const target = w.find('.cover-image').element;
+    holder.cb!(
+      [{ isIntersecting: true, target } as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    );
+    await vi.waitFor(() => {
+      expect(fetcher.getCount()).toBe(1);
+    });
+
+    w.unmount();
+  });
+
   it('fetch 失败时才回退到 /api/covers 网络 URL', async () => {
     stubFetch(async () => new Response('', { status: 404 }));
     const { useCoverUrl } = await import('@/composables/useCoverUrl');

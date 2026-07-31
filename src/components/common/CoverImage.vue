@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onMounted, onUnmounted } from 'vue';
 import { Music2 } from 'lucide-vue-next';
 import { useCoverUrl } from '@/composables/useCoverUrl';
 
@@ -22,13 +22,55 @@ const props = withDefaults(defineProps<{
 
 type CoverState = 'idle' | 'loading' | 'loaded' | 'error';
 
+const rootRef = ref<HTMLElement | null>(null);
+/** lazy 时等进入可视区再拉封面，避免首页未滚动就打满 /api/covers */
+const shouldFetch = ref(!props.lazy);
+
 const hasExternalSrc = computed(() => !!props.src);
 const hasValidCover = computed(() => hasExternalSrc.value || !!props.coverId);
 
 const state = ref<CoverState>(hasValidCover.value ? 'loading' : 'idle');
 
-const { displayUrl } = useCoverUrl(() => (hasExternalSrc.value ? null : props.coverId));
+const { displayUrl } = useCoverUrl(() => {
+  if (hasExternalSrc.value) return null;
+  if (!shouldFetch.value) return null;
+  return props.coverId;
+});
 const coverUrl = computed(() => (hasExternalSrc.value ? (props.src || '') : displayUrl.value));
+
+let io: IntersectionObserver | null = null;
+
+onMounted(() => {
+  if (!props.lazy) {
+    shouldFetch.value = true;
+    return;
+  }
+  const el = rootRef.value;
+  if (!el) {
+    shouldFetch.value = true;
+    return;
+  }
+  if (typeof IntersectionObserver === 'undefined') {
+    shouldFetch.value = true;
+    return;
+  }
+  io = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        shouldFetch.value = true;
+        io?.disconnect();
+        io = null;
+      }
+    },
+    { rootMargin: '150px', threshold: 0.01 },
+  );
+  io.observe(el);
+});
+
+onUnmounted(() => {
+  io?.disconnect();
+  io = null;
+});
 
 const handleLoad = (e: Event) => {
   const img = e.target as HTMLImageElement;
@@ -51,7 +93,7 @@ watch(
 </script>
 
 <template>
-  <div class="cover-image">
+  <div ref="rootRef" class="cover-image">
     <img
       v-if="hasValidCover && coverUrl && state !== 'error' && lazy"
       v-lazy="coverUrl"
