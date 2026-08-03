@@ -1,5 +1,26 @@
 [
   {
+    "version": "v0.8.1",
+    "published_at": "2026-08-03T02:15:23Z",
+    "summary": "2 项新功能",
+    "changes": {
+      "feature": [
+        "feat(scrape): 添加 STRM 侧车写入功能及相关提示",
+        "feat(cover-image): 添加懒加载功能以优化封面请求"
+      ],
+      "fix": [],
+      "perf": [],
+      "refactor": [],
+      "docs": [],
+      "i18n": [],
+      "build": [],
+      "ci": [],
+      "style": [],
+      "test": [],
+      "chore": []
+    }
+  },
+  {
     "version": "v0.8.0",
     "published_at": "2026-07-30T09:34:29Z",
     "summary": "8 项新功能",
