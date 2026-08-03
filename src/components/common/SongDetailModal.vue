@@ -13,6 +13,7 @@ import LyricsSearchModal from '@/components/common/LyricsSearchModal.vue';
 import { useToast } from '@/composables/useToast';
 import { songEvents } from '@/utils/songEvents';
 import { useAuthStore } from '@/stores/auth';
+import { useScrapeFeature } from '@/composables/useScrapeFeature';
 
 type DetailMode = 'view' | 'edit';
 type PendingCover =
@@ -35,6 +36,11 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const toast = useToast();
 const authStore = useAuthStore();
+const { canWriteStrmSidecar, ensureLoaded: ensureScrapeFeature } = useScrapeFeature();
+
+const strmSidecarWriteOff = computed(
+  () => isStrmSong(song.value) && !canWriteStrmSidecar.value
+);
 
 const loading = ref(false);
 const saving = ref(false);
@@ -130,6 +136,7 @@ const load = async () => {
     const [{ data }, lyricsCheck] = await Promise.all([
       musicApi.getSong(props.songId),
       musicApi.checkLyrics(props.songId).catch(() => ({ data: { has_lyrics: false } })),
+      ensureScrapeFeature(),
     ]);
     song.value = data;
     hasLyrics.value = Boolean(lyricsCheck.data?.has_lyrics);
@@ -218,13 +225,19 @@ const save = async () => {
     if (year) body.year = Number(year);
     const track = form.value.track_no.trim();
     if (track) body.track_no = Number(track);
-    if (pendingLyrics.value != null) body.lyrics = pendingLyrics.value;
+    if (pendingLyrics.value != null) {
+      if (strmSidecarWriteOff.value) {
+        toast.error(t('settings.write_strm_sidecar_lyrics_blocked'));
+      } else {
+        body.lyrics = pendingLyrics.value;
+      }
+    }
     if (pendingCover.value?.kind === 'url') body.cover_url = pendingCover.value.url;
 
     await musicApi.updateSongTags(props.songId, body);
     toast.success(t('songs.detail.save_success'));
     songEvents.emitSongUpdated([props.songId]);
-    if (pendingLyrics.value != null) {
+    if (pendingLyrics.value != null && !strmSidecarWriteOff.value) {
       songEvents.emitLyricsChanged(props.songId);
     }
     clearPending();
@@ -345,6 +358,12 @@ const save = async () => {
 
               <!-- Edit fields -->
               <div v-if="isEdit" class="space-y-3 mb-6">
+                <p
+                  v-if="strmSidecarWriteOff"
+                  class="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2"
+                >
+                  {{ t('settings.write_strm_sidecar_disabled_hint') }}
+                </p>
                 <div v-for="field in [
                   { key: 'title', label: t('songs.detail.fields.title') },
                   { key: 'artist', label: t('songs.detail.fields.artist') },
@@ -455,6 +474,7 @@ const save = async () => {
       :song-artist="form.artist"
       :song-album="form.album"
       :song-duration="song?.duration_secs"
+      :source-type="song?.source_type"
       apply-mode="defer"
       @apply="onLyricsApply"
     />

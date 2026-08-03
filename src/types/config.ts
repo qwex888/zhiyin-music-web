@@ -80,6 +80,8 @@ export interface ScrapeConfig {
   enabled: boolean;
   metadata_format: 'json' | 'nfo';
   sidecar_for_all: boolean;
+  /** 是否允许写入 STRM 同目录侧车（.metadata.json/.nfo、.lrc、cover-*） */
+  write_strm_sidecar: boolean;
 }
 
 export interface CoversConfig {

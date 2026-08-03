@@ -423,6 +423,7 @@ onMounted(() => {
     :song-artist="lyricsSearchTarget?.artist_name"
     :song-album="lyricsSearchTarget?.album ?? lyricsSearchTarget?.album_name"
     :song-duration="lyricsSearchTarget?.duration_secs"
+    :source-type="lyricsSearchTarget?.source_type"
   />
   <AddToPlaylistModal v-model="showAddToPlaylist" :song-ids="addToPlaylistIds" />
 </div>

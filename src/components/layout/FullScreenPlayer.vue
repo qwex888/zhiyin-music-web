@@ -829,6 +829,7 @@ const seekToLyric = (time: number) => {
     :song-artist="playerStore.currentSong?.artist_name"
     :song-album="playerStore.currentSong?.album ?? playerStore.currentSong?.album_name"
     :song-duration="playerStore.currentSong?.duration_secs"
+    :source-type="playerStore.currentSong?.source_type"
   />
   <AddToPlaylistModal
     v-model="showAddToPlaylist"

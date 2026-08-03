@@ -7,6 +7,7 @@ import { useToast } from '@/composables/useToast';
 import { songEvents } from '@/utils/songEvents';
 import { usePlayerStore } from '@/stores/player';
 import { useScrapeSources } from '@/composables/useScrapeSources';
+import { useScrapeFeature } from '@/composables/useScrapeFeature';
 
 const props = withDefaults(defineProps<{
   modelValue: boolean;
@@ -17,8 +18,10 @@ const props = withDefaults(defineProps<{
   songDuration?: number | null;
   /** immediate: 直接写回；defer: 仅 emit 给父组件暂存 */
   applyMode?: 'immediate' | 'defer';
+  sourceType?: string | null;
 }>(), {
   applyMode: 'immediate',
+  sourceType: null,
 });
 
 const emit = defineEmits<{
@@ -30,6 +33,15 @@ const { t } = useI18n();
 const toast = useToast();
 const playerStore = usePlayerStore();
 const { getSourceLabel, getSourceColorClass, getSourceBadgeStyle, ensureLoaded, getEnabledKeys } = useScrapeSources();
+const {
+  canWriteStrmSidecar,
+  ensureLoaded: ensureScrapeFeature,
+} = useScrapeFeature();
+
+const isStrm = computed(() =>
+  (props.sourceType || '').toLowerCase() === 'strm'
+);
+const lyricsWriteBlocked = computed(() => isStrm.value && !canWriteStrmSidecar.value);
 
 const title = ref('');
 const artist = ref('');
@@ -210,6 +222,9 @@ onBeforeUnmount(() => {
 });
 
 watch(() => props.modelValue, async (val) => {
+  if (val) {
+    await ensureScrapeFeature();
+  }
   if (val) await ensureLoaded();
   if (val) {
     title.value = props.songTitle || '';
@@ -310,6 +325,10 @@ const handleSearch = async () => {
 const handleReplace = async () => {
   const result = currentResult.value;
   if (!result?.lyrics_full || isReplacing.value) return;
+  if (lyricsWriteBlocked.value) {
+    toast.error(t('settings.write_strm_sidecar_lyrics_blocked'));
+    return;
+  }
   if (props.applyMode === 'defer') {
     emit('apply', result.lyrics_full);
     toast.success(t('lyrics.staged'));
@@ -323,8 +342,9 @@ const handleReplace = async () => {
     songEvents.emitSongUpdated([props.songId]);
     songEvents.emitLyricsChanged(props.songId);
     close();
-  } catch {
-    toast.error(t('lyrics.replace_error'));
+  } catch (e: unknown) {
+    const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+    toast.error(typeof msg === 'string' && msg ? msg : t('lyrics.replace_error'));
   } finally {
     isReplacing.value = false;
   }
@@ -617,12 +637,18 @@ const sourceBadgeStyle = (source: string) => getSourceBadgeStyle(source);
             </div>
 
             <!-- Apply Button -->
-            <div class="px-4 py-2.5 md:px-5 md:py-3 border-t border-border flex-shrink-0">
+            <div class="px-4 py-2.5 md:px-5 md:py-3 border-t border-border flex-shrink-0 space-y-2">
+              <p
+                v-if="lyricsWriteBlocked"
+                class="text-xs text-amber-600 dark:text-amber-400"
+              >
+                {{ t('settings.write_strm_sidecar_lyrics_blocked') }}
+              </p>
               <button
                 @click="handleReplace"
-                :disabled="!currentResult?.lyrics_full || isReplacing"
+                :disabled="!currentResult?.lyrics_full || isReplacing || lyricsWriteBlocked"
                 class="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all"
-                :class="currentResult?.lyrics_full
+                :class="currentResult?.lyrics_full && !lyricsWriteBlocked
                   ? 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/20'
                   : 'bg-bg-elevate text-text-tertiary cursor-not-allowed'"
               >

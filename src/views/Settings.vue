@@ -33,7 +33,7 @@ const authStore = useAuthStore();
 const isAdmin = computed(() => authStore.isAdmin);
 const libraryStore = useLibraryStore();
 const offlineStore = useOfflineStore();
-const { setEnabledLocal } = useScrapeFeature();
+const { setEnabledLocal, setWriteStrmSidecarLocal } = useScrapeFeature();
 const {
   latestTag,
   hasUpdate,
@@ -120,7 +120,8 @@ const formState = reactive({
   scrape: {
     enabled: false,
     metadata_format: "json" as const,
-    sidecar_for_all: false
+    sidecar_for_all: false,
+    write_strm_sidecar: true,
   },
   covers: {
     warmup_enabled: true,
@@ -270,6 +271,9 @@ const fetchConfig = async () => {
       if (data.scrape) Object.assign(formState.scrape, data.scrape);
       if (data.covers) Object.assign(formState.covers, data.covers);
       if (typeof data.scrape?.enabled === 'boolean') setEnabledLocal(data.scrape.enabled);
+      if (typeof data.scrape?.write_strm_sidecar === 'boolean') {
+        setWriteStrmSidecarLocal(data.scrape.write_strm_sidecar);
+      }
 
       corsOriginsInput.value = (data.security?.cors_origins || []).join(', ');
       loggingModulesInput.value = (data.logging?.modules || []).join(', ');
@@ -318,6 +322,7 @@ const saveConfig = async () => {
     
     await systemApi.updateConfig(updateParams);
     setEnabledLocal(willEnable);
+    setWriteStrmSidecarLocal(Boolean(formState.scrape.write_strm_sidecar));
 
     // 首次开启联网刮削时，批量启用内置源，免去用户再去源管理页手动打开
     if (!wasEnabled && willEnable) {
@@ -1456,11 +1461,24 @@ onUnmounted(() => {
             </div>
 
             <div class="space-y-4 text-sm">
-              <div>
+              <div class="flex items-center justify-between">
+                <div>
+                  <label class="text-text-primary">{{ t('settings.write_strm_sidecar') }}</label>
+                  <p class="text-[10px] text-text-tertiary">{{ t('settings.write_strm_sidecar_desc') }}</p>
+                </div>
+                <input
+                  v-model="formState.scrape.write_strm_sidecar"
+                  type="checkbox"
+                  class="w-4 h-4 rounded border-border text-primary focus:ring-primary"
+                />
+              </div>
+
+              <div :class="{ 'opacity-50 pointer-events-none': !formState.scrape.write_strm_sidecar }">
                 <label class="block text-text-secondary text-xs mb-1">{{ t('settings.metadata_format') }}</label>
                 <select
                   v-model="formState.scrape.metadata_format"
-                  class="w-full p-2 bg-bg-elevate rounded border border-border text-text-primary focus:border-primary outline-none"
+                  :disabled="!formState.scrape.write_strm_sidecar"
+                  class="w-full p-2 bg-bg-elevate rounded border border-border text-text-primary focus:border-primary outline-none disabled:cursor-not-allowed"
                 >
                   <option value="json">JSON (.metadata.json)</option>
                   <option value="nfo">NFO (.nfo - Kodi/Jellyfin)</option>
